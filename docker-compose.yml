@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - moa_postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+  # Redis Cache
+  redis:
+    image: redis:8.0.4
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - moa_redis_data:/data
+    networks:
+      - app-network
+
+# Volume & Network 설정
+volumes:
+  moa_postgres_data:
+  moa_redis_data:
+
+networks:
+  app-network:
+    driver: bridge
