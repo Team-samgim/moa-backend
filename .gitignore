@@ -38,6 +38,7 @@ out/
 
 
 ### Spring Boot configuration (sensitive info) ###
-src/main/resources/application.properties
+application.yml
+application.properties
 application-secret.properties
 .env
