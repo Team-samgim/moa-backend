@@ -1,10 +1,10 @@
-package com.moa.moa_backend;
+package com.moa;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class MoaBackendApplicationTests {
+class MoaApplicationTests {
 
 	@Test
 	void contextLoads() {
