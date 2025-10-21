@@ -14,6 +14,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - moa_postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
     networks:
       - app-network
 

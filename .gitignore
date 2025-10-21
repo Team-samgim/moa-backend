@@ -40,5 +40,6 @@ out/
 ### Spring Boot configuration (sensitive info) ###
 application.yml
 application.properties
-application-secret.properties
+application-secret.yml
+/init/
 .env
