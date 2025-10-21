@@ -4,6 +4,7 @@ import com.moa.global.security.jwt.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -34,12 +35,22 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .exceptionHandling(e -> e
-                        .authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler(accessDeniedHandler))
+                .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint).accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**").permitAll()
-                        .anyRequest().authenticated()
+                    // 공개: 회원가입/로그인
+                    .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
+
+                    // 공개: 중복확인
+                    .requestMatchers(HttpMethod.GET,  "/api/auth/exists/login-id").permitAll()
+
+                    // 공개: 재발급
+                    //.requestMatchers(HttpMethod.POST, "/api/auth/reissue").permitAll()
+
+                    // CORS preflight
+                    .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                    // 그 외는 인증
+                    .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
@@ -63,7 +74,7 @@ public class SecurityConfig {
         c.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
         c.setAllowedHeaders(List.of("Authorization","Content-Type"));
         c.setExposedHeaders(List.of("Authorization")); // 헤더로 토큰을 노출한다면
-        c.setAllowCredentials(false); // 쿠키로 refresh 쓸 거면 true로, 와일드카드 금지
+        c.setAllowCredentials(true); // 쿠키로 refresh 쓸 거면 true로, 와일드카드 금지
         UrlBasedCorsConfigurationSource s = new UrlBasedCorsConfigurationSource();
         s.registerCorsConfiguration("/**", c);
         return s;
