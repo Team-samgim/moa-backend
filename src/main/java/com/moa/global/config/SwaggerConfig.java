@@ -23,6 +23,7 @@ public class SwaggerConfig {
 
         return new OpenAPI()
                 .components(components)
+                .addSecurityItem(new SecurityRequirement().addList(jwt))
                 .info(apiInfo());
     }
     private Info apiInfo() {
