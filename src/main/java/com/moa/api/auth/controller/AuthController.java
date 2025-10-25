@@ -1,6 +1,7 @@
 package com.moa.api.auth.controller;
 
 import com.moa.api.auth.dto.LoginRequest;
+import com.moa.api.auth.dto.ReissueRequest;
 import com.moa.api.auth.dto.SignupRequest;
 import com.moa.api.auth.dto.TokenResponse;
 import com.moa.api.auth.service.AuthService;
@@ -27,6 +28,11 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<TokenResponse> login(@RequestBody @Valid LoginRequest req) {
         return ResponseEntity.ok(authService.login(req));
+    }
+
+    @PostMapping("/reissue")
+    public ResponseEntity<TokenResponse> reissue(@RequestBody ReissueRequest req) {
+        return ResponseEntity.ok(authService.reissue(req.refreshToken()));
     }
 
     // ★ 로그인아이디 중복확인

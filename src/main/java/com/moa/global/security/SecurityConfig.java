@@ -37,19 +37,9 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint).accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
-                    // 공개: 회원가입/로그인
-                    .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
-
-                    // 공개: 중복확인
-                    .requestMatchers(HttpMethod.GET,  "/api/auth/exists/login-id").permitAll()
-
-                    // 공개: 재발급
-                    //.requestMatchers(HttpMethod.POST, "/api/auth/reissue").permitAll()
-
-                    // CORS preflight
+                    // 회원 관련 api (api/auth/로 시작하는 api)는 토큰 없이 접근 가능
+                    .requestMatchers("/api/auth/**").permitAll()
                     .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-
-                    // 그 외는 인증
                     .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

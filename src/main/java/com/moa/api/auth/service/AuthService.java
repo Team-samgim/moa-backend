@@ -44,8 +44,38 @@ public class AuthService {
         if (!encoder.matches(req.password(), m.getPassword()))
             throw new IllegalArgumentException("로그인 아이디 또는 비밀번호가 올바르지 않습니다.");
 
-        String access = tokenProvider.createAccessToken(m.getId(), m.getEmail(), m.getRole());
-        return new TokenResponse(access);
+        String access = tokenProvider.createAccessToken(m.getId(), m.getLoginId(), m.getRole());
+        String refresh = tokenProvider.createRefreshToken(m.getLoginId(), m.getRole());
+        return new TokenResponse(access, refresh);
+    }
+
+    @Transactional(readOnly = true)
+    public TokenResponse reissue(String refreshToken) {
+        var jws = tokenProvider.parse(refreshToken);
+        var claims = jws.getBody();
+
+        String tokenType = claims.get("tokenType", String.class);
+        if (!"refresh".equals(tokenType)) {
+            throw new IllegalArgumentException("유효한 리프레시 토큰이 아닙니다.");
+        }
+
+        String loginId = claims.getSubject();
+        Number uidNum = claims.get("uid", Number.class);
+
+        Long memberId;
+        if (uidNum != null) {
+            memberId = uidNum.longValue();
+        } else {
+            memberId = memberRepo.findByLoginId(loginId)
+                    .map(Member::getId)
+                    .orElseThrow(() -> new IllegalArgumentException("회원이 존재하지 않습니다."));
+        }
+
+        Member m = memberRepo.findById(memberId)
+                .orElseThrow(() -> new IllegalArgumentException("회원이 존재하지 않습니다."));
+
+        String newAccess = tokenProvider.createAccessToken(m.getId(), m.getLoginId(), m.getRole());
+        return new TokenResponse(newAccess, refreshToken);
     }
 
     public boolean existsLoginId(String loginId) {

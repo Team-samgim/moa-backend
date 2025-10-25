@@ -44,4 +44,17 @@ public class TokenProvider {
     public Jws<Claims> parse(String token) {
         return Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token);
     }
+
+    public String createRefreshToken(String loginId, Role role) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .setSubject(loginId)
+                .claim("loginId", loginId)
+                .claim("role", role.name())
+                .claim("tokenType", "refresh")
+                .setIssuedAt(Date.from(now))
+                .setExpiration(Date.from(now.plusMillis(props.getRefreshTokenTtl())))
+                .signWith(key, SignatureAlgorithm.HS256)
+                .compact();
+    }
 }
