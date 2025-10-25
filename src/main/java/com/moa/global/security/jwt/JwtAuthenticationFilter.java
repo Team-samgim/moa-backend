@@ -35,14 +35,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String token = resolveToken(request);
             if (token != null) {
                 var claims = jwtTokenProvider.parse(token).getBody();
-                String email = claims.getSubject();
-                Member m = memberRepository.findByEmail(email).orElse(null);
+
+                Long userId = null;
+                Number uidNum = claims.get("uid", Number.class);
+                if (uidNum != null) {
+                    userId = uidNum.longValue();
+                }
+
+                Member m = null;
+                if (userId != null) {
+                    m = memberRepository.findById(userId).orElse(null);
+                }
+
                 if (m != null) {
                     List<GrantedAuthority> authorities =
                             List.of(new SimpleGrantedAuthority(m.getRole().name()));
 
                     UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(m, null, authorities);
+                            new UsernamePasswordAuthenticationToken(m.getId(), null, authorities);
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
