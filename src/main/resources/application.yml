@@ -3,7 +3,7 @@ spring:
     name: moa-backend
 
   config:
-    import: optional:classpath:application-secret.properties
+    import: optional:classpath:application-secret.yml
 
   jpa:
     hibernate:

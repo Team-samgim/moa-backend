@@ -8,6 +8,7 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import javax.crypto.SecretKey;            // 또는 java.security.Key
 import java.util.Date;
 
+import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -22,13 +23,16 @@ public class TokenProvider {
 
     public TokenProvider(JwtProperties props) {
         this.props = props;
-        this.key = Keys.hmacShaKeyFor(props.getSecret().getBytes(StandardCharsets.UTF_8));
+
+        byte[] keyBytes = Decoders.BASE64.decode(props.getSecret());
+        this.key = Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public String createAccessToken(Long userId, String email, Role role) {
+    public String createAccessToken(Long userId, String loginId, Role role) {
         Instant now = Instant.now();
         return Jwts.builder()
-                .setSubject(email)
+                .setSubject(loginId)
+                .claim("loginId", loginId)
                 .claim("uid", userId)
                 .claim("role", role.name())
                 .setIssuedAt(Date.from(now))
