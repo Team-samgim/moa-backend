@@ -23,7 +23,9 @@ public class MockSearchController {
     public Map<String, Object> getData(
             @RequestParam(defaultValue = "ethernet") String layer,
             @RequestParam(defaultValue = "0") int offset,
-            @RequestParam(defaultValue = "100") int limit
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(required = false) String sortField,
+            @RequestParam(required = false) String sortDirection
     ) {
         // layer별 테이블 이름 매핑
         String tableName = switch (layer.toLowerCase()) {
@@ -31,8 +33,15 @@ public class MockSearchController {
             default -> "ethernet_sample";
         };
 
+        // 정렬 파라미터 처리
+        String orderSql = "";
+        if (sortField != null && !sortField.isBlank()) {
+            String direction = "ASC".equalsIgnoreCase(sortDirection) ? "ASC" : "DESC";
+            orderSql = " ORDER BY " + sortField + " " + direction;
+        }
+
         // 실제 데이터 조회
-        String sql = String.format("SELECT * FROM %s OFFSET ? LIMIT ?", tableName);
+        String sql = String.format("SELECT * FROM %s%s OFFSET ? LIMIT ?", tableName, orderSql);
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, offset, limit);
 
         // 타입 평탄화 (object → value)
@@ -40,30 +49,22 @@ public class MockSearchController {
             for (Map.Entry<String, Object> entry : row.entrySet()) {
                 Object v = entry.getValue();
 
-                // PostgreSQL의 PGobject 처리
                 if (v instanceof PGobject pgObj) {
                     String val = pgObj.getValue();
-                    // inet, macaddr 등 JSON 문자열 포함 시 value만 추출
                     if (val != null && val.startsWith("{") && val.contains("\"value\"")) {
                         val = val.replaceAll(".*\"value\"\\s*:\\s*\"([^\"]+)\".*", "$1");
                     }
                     entry.setValue(val);
-                }
-
-                // JSON 형태의 문자열일 경우
-                else if (v instanceof String str && str.startsWith("{") && str.contains("\"value\"")) {
+                } else if (v instanceof String str && str.startsWith("{") && str.contains("\"value\"")) {
                     String extracted = str.replaceAll(".*\"value\"\\s*:\\s*\"([^\"]+)\".*", "$1");
                     entry.setValue(extracted);
-                }
-
-                // Map 형태
-                else if (v instanceof Map<?, ?> map && map.containsKey("value")) {
+                } else if (v instanceof Map<?, ?> map && map.containsKey("value")) {
                     entry.setValue(map.get("value"));
                 }
             }
         });
 
-        // 컬럼 목록 자동 조회
+        // 컬럼 목록 조회
         String colSql = """
                 SELECT column_name
                 FROM information_schema.columns
