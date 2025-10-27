@@ -27,8 +27,7 @@ public class MockSearchController {
     ) {
         // layer별 테이블 이름 매핑
         String tableName = switch (layer.toLowerCase()) {
-            case "http_page" -> "http_page_sample";
-            case "page" -> "page_sample";
+            case "http_page" -> "page_sample";
             default -> "ethernet_sample";
         };
 
