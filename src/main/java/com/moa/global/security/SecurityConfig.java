@@ -39,8 +39,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                     // 회원 관련 api (api/auth/로 시작하는 api)는 토큰 없이 접근 가능
                     .requestMatchers("/api/auth/**").permitAll()
-                    .requestMatchers("/api/mock-search").permitAll()
-//                    .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                    .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                     .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
