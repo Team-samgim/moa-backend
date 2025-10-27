@@ -15,6 +15,15 @@ services:
     volumes:
       - moa_postgres_data:/var/lib/postgresql/data
       - ./init:/docker-entrypoint-initdb.d
+    command: >
+      bash -c "
+        docker-entrypoint.sh postgres &
+        until pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} > /dev/null 2>&1; do
+          sleep 2;
+        done;
+        psql -v ON_ERROR_STOP=1 -U ${POSTGRES_USER} -d ${POSTGRES_DB} -f /docker-entrypoint-initdb.d/02_data_import.sql;
+        wait
+      "
     networks:
       - app-network
 
