@@ -41,7 +41,13 @@ public class MockSearchController {
         }
 
         // 실제 데이터 조회
-        String sql = String.format("SELECT * FROM %s%s OFFSET ? LIMIT ?", tableName, orderSql);
+        String sql = String.format(
+                "SELECT * FROM %s %s OFFSET ? LIMIT ?",
+                tableName,
+                (sortField != null && !sortField.isEmpty()
+                        ? "ORDER BY " + sortField + " " + (sortDirection != null ? sortDirection.toUpperCase() : "ASC")
+                        : "")
+        );
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, offset, limit);
 
         // 타입 평탄화 (object → value)
