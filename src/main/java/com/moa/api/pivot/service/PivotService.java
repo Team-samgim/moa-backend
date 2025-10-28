@@ -8,6 +8,11 @@ import com.moa.api.pivot.repository.PivotRepository.TimeWindow;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
@@ -35,13 +40,10 @@ public class PivotService {
 
     // /api/pivot/query
     public PivotQueryResponseDTO runPivotQuery(PivotQueryRequestDTO request) {
-        // 1. validate
         validateRequest(request);
 
-        // 2. resolve time window
-        TimeWindow tw = resolveTimeWindow(request);
+        PivotRepository.TimeWindow tw = resolveTimeWindow(request);
 
-        // 3. column distinct 상위 값 뽑기
         List<String> columnValues = pivotRepository.findTopColumnValues(
                 request.getLayer(),
                 request.getColumn().getField(),
@@ -49,7 +51,6 @@ public class PivotService {
                 tw
         );
 
-        // 4. rowGroups 빌드 (각 row 필드별 요약 라인)
         var rowGroups = pivotRepository.buildRowGroups(
                 request.getLayer(),
                 request.getRows(),
@@ -60,12 +61,10 @@ public class PivotService {
                 tw
         );
 
-        // 5. summary 만들기
         PivotQueryResponseDTO.Summary summary = PivotQueryResponseDTO.Summary.builder()
                 .rowCountText("합계: " + rowGroups.size() + "행")
                 .build();
 
-        // 6. 최종 응답 조립
         return PivotQueryResponseDTO.builder()
                 .columnField(
                         PivotQueryResponseDTO.ColumnField.builder()
@@ -90,13 +89,55 @@ public class PivotService {
     }
 
     private void validateRequest(PivotQueryRequestDTO request) {
+        // TODO: 나중에 필드 유효성 체크, 중복 금지 등 추가하기
         // 레이어 유효성
         // column 1개인지
         // rows/values 중복 필드 없는지
         // values의 agg 허용 가능 여부 등
     }
 
-    private TimeWindow resolveTimeWindow(PivotQueryRequestDTO request) {
-        return new TimeWindow("2025-10-27T00:23:45+09:00", "2025-10-27T01:23:45+09:00");
+    private PivotRepository.TimeWindow resolveTimeWindow(PivotQueryRequestDTO request) {
+        // 1) now를 OffsetDateTime으로 파싱
+        //    예: "2025-10-27T07:20:00.000Z"
+        OffsetDateTime nowOffset = OffsetDateTime.parse(
+                request.getTimeRange().getNow(),
+                DateTimeFormatter.ISO_OFFSET_DATE_TIME
+        );
+
+        OffsetDateTime fromOffset;
+        OffsetDateTime toOffset;
+
+        if ("preset".equals(request.getTimeRange().getType())) {
+            String v = request.getTimeRange().getValue(); // "1h", "2h", "24h", "1w"
+            Duration dur;
+            switch (v) {
+                case "1h" -> dur = Duration.ofHours(1);
+                case "2h" -> dur = Duration.ofHours(2);
+                case "24h" -> dur = Duration.ofHours(24);
+                case "1w" -> dur = Duration.ofDays(7);
+                default -> throw new IllegalArgumentException("Unsupported preset: " + v);
+            }
+            toOffset = nowOffset;
+            fromOffset = nowOffset.minus(dur);
+
+        } else { // "custom"
+            // customRange.from / to 는 ISO 문자열이라고 가정
+            String fromStr = request.getCustomRange().getFrom();
+            String toStr = request.getCustomRange().getTo();
+
+            // 예: "2025-10-27T00:00:00.000Z"
+            OffsetDateTime parsedFrom = OffsetDateTime.parse(fromStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+            OffsetDateTime parsedTo   = OffsetDateTime.parse(toStr,   DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+
+            fromOffset = parsedFrom;
+            toOffset = parsedTo;
+        }
+
+        ZoneId zone = ZoneId.of("UTC");
+
+        LocalDateTime fromLdt = fromOffset.atZoneSameInstant(zone).toLocalDateTime();
+        LocalDateTime toLdt   = toOffset.atZoneSameInstant(zone).toLocalDateTime();
+
+        return new PivotRepository.TimeWindow(fromLdt, toLdt);
     }
 }
