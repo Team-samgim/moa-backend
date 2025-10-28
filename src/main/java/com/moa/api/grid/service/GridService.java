@@ -16,7 +16,7 @@ public class GridService {
 
     private final GridRepositoryImpl gridRepository;
 
-    /** ✅ 메인 그리드 데이터 조회 */
+    /** 메인 그리드 데이터 조회 */
     public SearchResponseDTO getGridData(GridRequestDTO request) {
         List<Map<String, Object>> rows = gridRepository.getGridData(
                 request.getLayer(),
@@ -36,7 +36,7 @@ public class GridService {
                 .build();
     }
 
-    /** ✅ DISTINCT 필터값 조회 (다른 필터 반영 포함) */
+    /** DISTINCT 필터값 조회 (다른 필터 반영 포함) */
     public FilterResponseDTO getDistinctValues(String layer, String field, String filterModel) {
         List<String> values = gridRepository.getDistinctValues(layer, field, filterModel);
         return FilterResponseDTO.builder()

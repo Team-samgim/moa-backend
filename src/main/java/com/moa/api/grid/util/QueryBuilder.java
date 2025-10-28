@@ -24,18 +24,18 @@ public class QueryBuilder {
 
         StringBuilder sql = new StringBuilder("SELECT * FROM " + tableName);
 
-        // ✅ WHERE 절 생성
+        // WHERE 절 생성
         String where = buildWhereClause(filterModel);
         if (!where.isEmpty()) {
             sql.append(" WHERE ").append(where);
         }
 
-        // ✅ 정렬 조건
+        // 정렬 조건
         if (sortField != null && sortDirection != null) {
             sql.append(" ORDER BY \"").append(sortField).append("\" ").append(sortDirection);
         }
 
-        // ✅ 페이징
+        // 페이징
         if (limit > 0) {
             sql.append(" OFFSET ").append(offset).append(" LIMIT ").append(limit);
         }
