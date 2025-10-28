@@ -1,18 +1,22 @@
 package com.moa.api.grid.util;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Iterator;
 import java.util.Map;
-import java.util.stream.Collectors;
 
+@Slf4j
+@Component
 public class QueryBuilder {
 
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    public static String buildSelectSQL(String layer, String sortField, String sortDirection, String filterModel) {
-        // layer → 실제 테이블명 매핑
+    public String buildSelectSQL(String layer, String sortField, String sortDirection,
+                                 String filterModel, int offset, int limit) {
+
         String tableName = switch (layer.toLowerCase()) {
             case "http_page" -> "page_sample";
             default -> "ethernet_sample";
@@ -20,41 +24,64 @@ public class QueryBuilder {
 
         StringBuilder sql = new StringBuilder("SELECT * FROM " + tableName);
 
-        // 필터 처리
-        if (filterModel != null && !filterModel.isBlank()) {
-            try {
-                Map<String, Map<String, Object>> filters = mapper.readValue(filterModel, Map.class);
-                List<String> conditions = new ArrayList<>();
-
-                for (String col : filters.keySet()) {
-                    Map<String, Object> filter = filters.get(col);
-                    String type = (String) filter.get("type");
-
-                    if ("set".equalsIgnoreCase(type)) {
-                        List<?> values = (List<?>) filter.get("values");
-                        if (values != null && !values.isEmpty()) {
-                            String inClause = values.stream()
-                                    .map(Object::toString)
-                                    .map(v -> "'" + v + "'")
-                                    .collect(Collectors.joining(","));
-                            conditions.add("\"" + col + "\" IN (" + inClause + ")");
-                        }
-                    }
-                }
-                if (!conditions.isEmpty()) {
-                    sql.append(" WHERE ").append(String.join(" AND ", conditions));
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+        // ✅ WHERE 절 생성
+        String where = buildWhereClause(filterModel);
+        if (!where.isEmpty()) {
+            sql.append(" WHERE ").append(where);
         }
 
-        // 정렬 처리
-        if (sortField != null && !sortField.isBlank()) {
-            String direction = "DESC".equalsIgnoreCase(sortDirection) ? "DESC" : "ASC";
-            sql.append(" ORDER BY \"").append(sortField).append("\" ").append(direction);
+        // ✅ 정렬 조건
+        if (sortField != null && sortDirection != null) {
+            sql.append(" ORDER BY \"").append(sortField).append("\" ").append(sortDirection);
+        }
+
+        // ✅ 페이징
+        if (limit > 0) {
+            sql.append(" OFFSET ").append(offset).append(" LIMIT ").append(limit);
         }
 
         return sql.toString();
+    }
+
+    private String buildWhereClause(String filterModel) {
+        if (filterModel == null || filterModel.isEmpty() || filterModel.equals("{}")) return "";
+
+        try {
+            JsonNode root = mapper.readTree(filterModel);
+            Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
+            StringBuilder where = new StringBuilder();
+            boolean first = true;
+
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                String field = entry.getKey();
+                JsonNode filter = entry.getValue();
+
+                if (!first) where.append(" AND ");
+                first = false;
+
+                if (filter.has("values")) {
+                    JsonNode values = filter.get("values");
+                    where.append("\"").append(field).append("\" IN ").append(buildInClause(values));
+                }
+            }
+
+            log.info("[QueryBuilder] WHERE clause built: {}", where);
+            return where.toString();
+
+        } catch (Exception e) {
+            log.error("[QueryBuilder] Failed to parse filterModel: {}", filterModel, e);
+            return "";
+        }
+    }
+
+    private String buildInClause(JsonNode values) {
+        StringBuilder sb = new StringBuilder("(");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append("'").append(values.get(i).asText()).append("'");
+        }
+        sb.append(")");
+        return sb.toString();
     }
 }
