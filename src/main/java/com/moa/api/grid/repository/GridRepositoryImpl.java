@@ -17,7 +17,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
     private final JdbcTemplate jdbcTemplate;
     private final QueryBuilder queryBuilder;
 
-    /** ✅ 메인 그리드 데이터 조회 */
+    /** 메인 그리드 데이터 조회 */
     @Override
     public List<Map<String, Object>> getGridData(String layer, String sortField, String sortDirection,
                                                  String filterModel, int offset, int limit) {
@@ -26,7 +26,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
         return jdbcTemplate.queryForList(sql);
     }
 
-    /** ✅ DISTINCT 필터용 값 조회 (다른 필터 반영) */
+    /** DISTINCT 필터용 값 조회 (다른 필터 반영) */
     @Override
     public List<String> getDistinctValues(String layer, String column, String filterModel) {
         String innerQuery = queryBuilder.buildSelectSQL(layer, null, null, filterModel, 0, 0)
@@ -42,7 +42,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
         return jdbcTemplate.queryForList(sql, String.class);
     }
 
-    /** ✅ 컬럼 목록 조회 */
+    /** 컬럼 목록 조회 */
     public List<String> getColumns(String layer) {
         String tableName = switch (layer.toLowerCase()) {
             case "http_page" -> "page_sample";
