@@ -14,13 +14,13 @@ public class GridController {
 
     private final GridService gridService;
 
-    /** 메인 데이터 조회 */
+    /** ✅ 메인 데이터 조회 */
     @GetMapping("/randering")
     public SearchResponseDTO getGridData(GridRequestDTO request) {
         return gridService.getGridData(request);
     }
 
-    /** 필터용 DISTINCT 값 조회 */
+    /** ✅ 필터용 DISTINCT 값 조회 */
     @GetMapping("/filtering")
     public FilterResponseDTO getDistinctValues(
             @RequestParam(defaultValue = "ethernet") String layer,
