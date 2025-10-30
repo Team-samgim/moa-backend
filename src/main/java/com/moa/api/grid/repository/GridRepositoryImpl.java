@@ -69,7 +69,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
     /** ✅ PostgreSQL용 컬럼명 + 타입 조회 (정규화 버전) */
     public List<SearchResponseDTO.ColumnDTO> getColumnsWithType(String layer) {
         String tableName = switch (layer.toLowerCase()) {
-            case "http_page" -> "page_sample";
+            case "http_page" -> "http_page_sample";
             default -> "ethernet_sample";
         };
 
@@ -140,7 +140,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
     // 컬럼 -> 원시 시간 UDT(kind): timestamptz / timestamp / date
     private Map<String,String> buildTemporalKindMap(String layer) {
         String tableName = switch (layer.toLowerCase()) {
-            case "http_page" -> "page_sample";
+            case "http_page" -> "http_page_sample";
             case "http_uri"  -> "uri_sample";
             case "l4_tcp"    -> "tcp_sample";
             default -> "ethernet_sample";
