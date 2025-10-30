@@ -39,7 +39,7 @@ public class QueryBuilder {
     /** ✅ 테이블명 매핑 */
     public String resolveTableName(String layer) {
         return switch (layer.toLowerCase()) {
-            case "http_page" -> "page_sample";
+            case "http_page" -> "http_page_sample";
             case "http_uri"  -> "uri_sample";
             case "l4_tcp"    -> "tcp_sample";
             default          -> "ethernet_sample";
