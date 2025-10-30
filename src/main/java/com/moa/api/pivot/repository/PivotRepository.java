@@ -21,8 +21,8 @@ public class PivotRepository {
 
     private String resolveTable(String layer) {
         return switch (layer) {
-            case "HTTP_PAGE" -> "page_sample";
-            case "ETHERNET"  -> "ethernet_sample";
+            case "HTTP_PAGE" -> "http_page_sample";
+            case "Ethernet"  -> "ethernet_sample";
             case "TCP"       -> "tcp_sample";
             case "HTTP_URI"  -> "uri_sample";
             default -> throw new IllegalArgumentException("Unsupported layer: " + layer);
