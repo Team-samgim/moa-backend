@@ -1,8 +1,6 @@
 package com.moa.api.grid.controller;
 
-import com.moa.api.grid.dto.FilterResponseDTO;
-import com.moa.api.grid.dto.GridRequestDTO;
-import com.moa.api.grid.dto.SearchResponseDTO;
+import com.moa.api.grid.dto.*;
 import com.moa.api.grid.service.GridService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -28,5 +26,11 @@ public class GridController {
             @RequestParam(required = false) String filterModel
     ) {
         return gridService.getDistinctValues(layer, field, filterModel);
+    }
+
+    /** ✅ 집계(푸터 요약) */
+    @PostMapping("/aggregate")
+    public AggregateResponseDTO aggregate(@RequestBody AggregateRequestDTO request) {
+        return gridService.aggregate(request);
     }
 }

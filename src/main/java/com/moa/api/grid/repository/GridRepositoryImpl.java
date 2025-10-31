@@ -1,5 +1,7 @@
 package com.moa.api.grid.repository;
 
+import com.moa.api.grid.dto.AggregateRequestDTO;
+import com.moa.api.grid.dto.AggregateResponseDTO;
 import com.moa.api.grid.dto.SearchResponseDTO;
 import com.moa.api.grid.util.QueryBuilder;
 import lombok.RequiredArgsConstructor;
@@ -9,10 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSetMetaData;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Slf4j
 @Repository
@@ -161,5 +160,134 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
             else if (udt.contains("time"))   m.put(col, "timestamp"); // time만 있는 경우 비교시 ::date 변환용으로 timestamp 취급
         }
         return m;
+    }
+
+    public Map<String,String> getFrontendTypeMap(String layer) {
+        return buildFrontendTypeMap(layer);
+    }
+
+    public Map<String,String> getTemporalKindMap(String layer) {
+        return buildTemporalKindMap(layer);
+    }
+
+    public AggregateResponseDTO aggregate(AggregateRequestDTO req) {
+        String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "ethernet" : req.getLayer();
+        String table = queryBuilder.resolveTableName(layer);
+
+        // 기존 WHERE/타입 판정 로직 재사용
+        Map<String,String> typeMap = getFrontendTypeMap(layer);
+        Map<String,String> temporalMap = getTemporalKindMap(layer);
+        String where = queryBuilder.buildWhereClause(req.getFilterModel(), typeMap, temporalMap);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        if (req.getMetrics() == null || req.getMetrics().isEmpty()) {
+            return new AggregateResponseDTO(result);
+        }
+
+        req.getMetrics().forEach((field, spec) -> {
+            String declaredType = spec != null ? spec.getType() : null;
+            String t = (declaredType != null && !declaredType.isBlank())
+                    ? declaredType.toLowerCase()
+                    : typeMap.getOrDefault(field, "string").toLowerCase();
+
+            // date는 제외
+            if ("date".equals(t)) return;
+
+            String col = "\"" + field + "\""; // 기존 SELECT와 동일 인용 규칙
+            List<String> ops = (spec != null && spec.getOps() != null) ? spec.getOps() : List.of();
+
+            Map<String,Object> agg = new LinkedHashMap<>();
+
+            try {
+                if ("number".equals(t)) {
+                    Map<String,Object> row = numberAgg(table, col, where);
+                    if (ops.contains("count")) agg.put("count", row.get("cnt"));
+                    if (ops.contains("sum"))   agg.put("sum",   row.get("s"));
+                    if (ops.contains("avg"))   agg.put("avg",   row.get("a"));
+                    if (ops.contains("min"))   agg.put("min",   row.get("mn"));
+                    if (ops.contains("max"))   agg.put("max",   row.get("mx"));
+                } else { // string / ip / mac
+                    Map<String,Object> row = stringAgg(table, col, where);
+                    Object cntObj = row.get("cnt");
+                    Object uniqObj = row.get("uniq");
+                    long cnt  = (cntObj  == null) ? 0L : ((Number) cntObj).longValue();
+                    long uniq = (uniqObj == null) ? 0L : ((Number) uniqObj).longValue();
+
+                    if (ops.contains("count"))    agg.put("count",    cnt);
+                    if (ops.contains("distinct")) agg.put("distinct", uniq);
+
+                    boolean wantTop = ops.contains("top1") || ops.contains("top2") || ops.contains("top3");
+                    // ✅ 전부 유니크면 Top 계산 스킵
+                    if (wantTop && cnt > uniq) {
+                        List<Map<String, Object>> list = topNList(table, col, where, 3);
+
+                        java.util.function.Function<Object, Object> valOf = v -> {
+                            if (v instanceof org.postgresql.util.PGobject pg) return pg.getValue();
+                            return v;
+                        };
+
+                        Map<String, Object> t1 = list.size() >= 1 ? list.get(0) : null;
+                        Map<String, Object> t2 = list.size() >= 2 ? list.get(1) : null;
+                        Map<String, Object> t3 = list.size() >= 3 ? list.get(2) : null;
+
+                        if (ops.contains("top1")) agg.put("top1", t1 == null ? null :
+                                Map.of("value", valOf.apply(t1.get("val")), "count", t1.get("c")));
+                        if (ops.contains("top2")) agg.put("top2", t2 == null ? null :
+                                Map.of("value", valOf.apply(t2.get("val")), "count", t2.get("c")));
+                        if (ops.contains("top3")) agg.put("top3", t3 == null ? null :
+                                Map.of("value", valOf.apply(t3.get("val")), "count", t3.get("c")));
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[GridRepositoryImpl] aggregate error for field {}: {}", field, e.getMessage());
+            }
+
+            result.put(field, agg);
+        });
+
+        return new AggregateResponseDTO(result);
+    }
+
+    private Map<String, Object> numberAgg(String table, String col, String where) {
+        StringBuilder sql = new StringBuilder()
+                .append("SELECT COUNT(").append(col).append(") AS cnt, ")
+                .append("SUM(").append(col).append(") AS s, ")
+                .append("AVG(").append(col).append(") AS a, ")
+                .append("MIN(").append(col).append(") AS mn, ")
+                .append("MAX(").append(col).append(") AS mx ")
+                .append("FROM ").append(table);
+        if (where != null && !where.isBlank()) sql.append(" WHERE ").append(where);
+        return jdbcTemplate.queryForMap(sql.toString());
+    }
+
+    private Map<String, Object> stringAgg(String table, String col, String where) {
+        StringBuilder sql = new StringBuilder()
+                .append("SELECT COUNT(").append(col).append(") AS cnt, ")
+                .append("COUNT(DISTINCT ").append(col).append(") AS uniq ")
+                .append("FROM ").append(table);
+        if (where != null && !where.isBlank()) sql.append(" WHERE ").append(where);
+        return jdbcTemplate.queryForMap(sql.toString());
+    }
+
+    private List<Map<String, Object>> topNList(String table, String col, String where, int limit) {
+        StringBuilder sql = new StringBuilder()
+                .append("SELECT ").append(col).append(" AS val, COUNT(*) AS c ")
+                .append("FROM ").append(table).append(" ");
+        boolean hasWhere = (where != null && !where.isBlank());
+
+        // NULL 제외
+        if (hasWhere) {
+            sql.append("WHERE ").append(where).append(" AND ").append(col).append(" IS NOT NULL ");
+        } else {
+            sql.append("WHERE ").append(col).append(" IS NOT NULL ");
+        }
+
+        // 동률일 때 알파벳/숫자순 안정 정렬
+        sql.append("GROUP BY ").append(col)
+                .append(" ORDER BY c DESC, ").append(col).append(" ASC ")
+                .append("LIMIT ").append(Math.max(1, limit));
+
+        return jdbcTemplate.queryForList(sql.toString());
     }
 }

@@ -1,8 +1,6 @@
 package com.moa.api.grid.service;
 
-import com.moa.api.grid.dto.FilterResponseDTO;
-import com.moa.api.grid.dto.GridRequestDTO;
-import com.moa.api.grid.dto.SearchResponseDTO;
+import com.moa.api.grid.dto.*;
 import com.moa.api.grid.repository.GridRepositoryImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -43,5 +41,10 @@ public class GridService {
                 .field(field)
                 .values((List<Object>)(List<?>) values)
                 .build();
+    }
+
+    /** ✅ 집계 (date 제외, number/string/ip/mac) */
+    public AggregateResponseDTO aggregate(AggregateRequestDTO req) {
+        return gridRepository.aggregate(req);
     }
 }
