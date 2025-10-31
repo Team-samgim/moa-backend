@@ -10,6 +10,7 @@ import com.moa.api.search.repository.HttpPageFieldRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
 public class SearchFeildService {
 
     private final HttpPageFieldRepository httpPageFieldRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     // (A) 타입별 연산자: 코드 고정(소스 오브 트루스)
     private static final Map<DataType, List<OperatorDTO>> OPS = Map.of(
@@ -101,11 +103,21 @@ public class SearchFeildService {
     }
 
     public List<FieldDTO> listFields(String layer) {
-        // 1) HTTP_PAGE: DB에서 읽기
+        // 0) 탭(layer) → 실제 테이블명 매핑
+        String table = resolveTableByLayer(layer);
+
+        // 1) information_schema에서 컬럼을 읽어 필드 생성 (레이어 우선)
+        if (table != null) {
+            List<FieldDTO> fromTable = listFieldsFromTable(table);
+            if (!fromTable.isEmpty()) {
+                return fromTable;
+            }
+        }
+
+        // 2) HTTP_PAGE는 기존 메타 테이블(http_page_fields) 폴백
         if ("HTTP_PAGE".equalsIgnoreCase(layer)) {
             List<HttpPageField> rows = httpPageFieldRepository.findAllByOrderByFieldKeyAsc();
             if (!rows.isEmpty()) {
-                // 10,20,30… 임시 orderNo 부여
                 final int[] order = {0};
                 return rows.stream()
                         .map(r -> new FieldDTO(
@@ -117,7 +129,8 @@ public class SearchFeildService {
                         .collect(Collectors.toList());
             }
         }
-        // 2) DB 비었으면 코드 기본값 폴백
+
+        // 3) 코드 고정 기본값 최종 폴백
         return FIELDS_BY_LAYER.getOrDefault(layer, List.of());
     }
 
@@ -137,6 +150,76 @@ public class SearchFeildService {
             return DataType.valueOf(raw.trim().toUpperCase(Locale.ROOT));
         } catch (Exception ignored) {
             return DataType.TEXT;
+        }
+    }
+
+    private String resolveTableByLayer(String layer) {
+        if (layer == null) return null;
+        String L = layer.trim().toUpperCase(Locale.ROOT);
+        return switch (L) {
+            case "HTTP_PAGE" -> "http_page_sample";
+            case "ETHERNET"  -> "ethernet_sample";
+            default -> null; // 혹은 예외 throw
+        };
+    }
+
+    private List<FieldDTO> listFieldsFromTable(String tableName) {
+        final String sql = """
+            select column_name, data_type, ordinal_position
+            from information_schema.columns
+            where table_schema = 'public' and table_name = ?
+            order by ordinal_position
+        """;
+        final int[] order = {0};
+        return jdbcTemplate.query(
+                sql,
+                (rs, i) -> {
+                    String key = rs.getString("column_name");
+                    String pgType = rs.getString("data_type");
+                    DataType dt = mapPgTypeToDataType(pgType);
+                    return new FieldDTO(
+                            key,
+                            key,                 // label 기본값 = key
+                            dt.name(),
+                            order[0] += 10       // 화면 정렬용 10단위 증가
+                    );
+                },
+                tableName
+        );
+    }
+
+    private DataType mapPgTypeToDataType(String pgType) {
+        if (pgType == null) return DataType.TEXT;
+        String t = pgType.toLowerCase(Locale.ROOT);
+        switch (t) {
+            // 숫자형
+            case "integer":
+            case "bigint":
+            case "smallint":
+            case "numeric":
+            case "real":
+            case "double precision":
+            case "decimal":
+                return DataType.NUMBER;
+            // 불리언
+            case "boolean":
+                return DataType.BOOLEAN;
+            // 시간/날짜
+            case "timestamp without time zone":
+            case "timestamp with time zone":
+            case "date":
+            case "time without time zone":
+            case "time with time zone":
+                return DataType.DATETIME;
+            // 네트워크
+            case "inet":
+                return DataType.IP;
+            // 텍스트류
+            case "character varying":
+            case "character":
+            case "text":
+            default:
+                return DataType.TEXT;
         }
     }
 }
