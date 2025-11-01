@@ -228,8 +228,9 @@ public class PivotRepository {
             FROM %s
             %s
             GROUP BY %s
-            ORDER BY cnt DESC
-        """.formatted(rowField, tableName, where, rowField);
+            ORDER BY %s ASC
+        """.formatted(rowField, tableName, where, rowField, rowField);
+
 
         return jdbc.query(sql, params, (rs, i) -> rs.getString("row_val"));
     }
