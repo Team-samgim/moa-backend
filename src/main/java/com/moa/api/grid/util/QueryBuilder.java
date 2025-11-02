@@ -16,6 +16,42 @@ public class QueryBuilder {
     private static final String APP_TZ = "Asia/Seoul";
     private static final boolean TS_WO_TZ_IS_UTC = true;
 
+    private String q(String col) { return "\"" + col + "\""; }
+    private String esc(String s) { return s == null ? "" : s.replace("'", "''"); }
+
+    // --- export 전용: 선택 컬럼 + LIMIT 없음 ---
+    public String buildSelectSQLForExport(String layer,
+                                          List<String> columns,
+                                          String sortField,
+                                          String sortDirection,
+                                          String filterModel,
+                                          Map<String,String> typeMap,
+                                          Map<String,String> rawTemporalKindMap) {
+
+        String table = resolveTableName(layer);
+        if (columns == null || columns.isEmpty()) {
+            throw new IllegalArgumentException("columns is required");
+        }
+        // 컬럼들 안전 쿼트
+        String selectCols = String.join(", ", columns.stream()
+                .map(c -> q(c.contains("-") ? c.split("-")[0] : c))
+                .toList());
+
+        StringBuilder sql = new StringBuilder("SELECT ").append(selectCols)
+                .append(" FROM ").append(table);
+
+        String where = buildWhereClause(filterModel, typeMap, rawTemporalKindMap);
+        if (!where.isEmpty()) sql.append(" WHERE ").append(where);
+
+        if (sortField != null && !sortField.isBlank()
+                && sortDirection != null && !sortDirection.isBlank()) {
+            String safeSort = sortField.contains("-") ? sortField.split("-")[0] : sortField;
+            sql.append(" ORDER BY ").append(q(safeSort)).append(" ").append(sortDirection);
+        }
+        log.info("[QueryBuilder] ✅ Export SQL: {}", sql);
+        return sql.toString();
+    }
+
     // 컬럼별 원시 DB타입 맵: "timestamptz" | "timestamp" | "date" ...
     private String toKstDateExpr(String field, String rawTemporalKind) {
         String q = "\"" + field + "\"";

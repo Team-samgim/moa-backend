@@ -18,4 +18,12 @@ public class S3Config {
                 .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
+
+    @Bean
+    public software.amazon.awssdk.services.s3.presigner.S3Presigner s3Presigner(S3Props p) {
+        return software.amazon.awssdk.services.s3.presigner.S3Presigner.builder()
+                .region(software.amazon.awssdk.regions.Region.of(p.getRegion()))
+                .credentialsProvider(software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider.create())
+                .build();
+    }
 }
