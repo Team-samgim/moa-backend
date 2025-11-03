@@ -14,6 +14,8 @@ import java.util.stream.Collectors;
 import com.moa.api.search.registry.DataType;
 import com.moa.api.search.registry.OpCode;
 
+import static com.moa.api.grid.util.LayerTableResolver.resolveDataTable;
+
 @Service
 @RequiredArgsConstructor
 public class SearchExecuteService {
@@ -23,7 +25,16 @@ public class SearchExecuteService {
 
     public SearchDTO execute(SearchDTO req) {
         // 1) 기본값/가드
-        String table = Optional.ofNullable(req.getSource()).filter(StringUtils::hasText).orElse("page_sample");
+        String layer = Optional.ofNullable(req.getLayer())
+                .filter(StringUtils::hasText)
+                .orElse("HTTP_PAGE");
+
+        // ✅ source 미지정 시 레이어 기반 매핑으로 FQN 테이블명 강제
+        String table = Optional.ofNullable(req.getSource())
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .orElse(resolveDataTable(layer));
+
         SearchDTO.TimeSpec time = Objects.requireNonNull(req.getTime(), "time is required");
         String timeField = Optional.ofNullable(time.getField()).filter(StringUtils::hasText).orElse("ts_server");
         boolean inclusive = Optional.ofNullable(time.getInclusive()).orElse(true);

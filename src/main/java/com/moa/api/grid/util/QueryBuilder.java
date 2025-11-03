@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.*;
 
+import static com.moa.api.grid.util.LayerTableResolver.resolveDataTable;
+
 @Slf4j
 @Component
 public class QueryBuilder {
@@ -74,12 +76,7 @@ public class QueryBuilder {
 
     /** ✅ 테이블명 매핑 */
     public String resolveTableName(String layer) {
-        return switch (layer.toLowerCase()) {
-            case "http_page" -> "http_page_sample";
-            case "http_uri"  -> "uri_sample";
-            case "l4_tcp"    -> "tcp_sample";
-            default          -> "ethernet_sample";
-        };
+        return resolveDataTable(layer);
     }
 
     // 타입맵 + 원시시간타입맵 받기

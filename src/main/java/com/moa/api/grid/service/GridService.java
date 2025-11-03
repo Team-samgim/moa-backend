@@ -2,6 +2,8 @@ package com.moa.api.grid.service;
 
 import com.moa.api.grid.dto.*;
 import com.moa.api.grid.repository.GridRepositoryImpl;
+import com.moa.api.search.dto.SearchDTO;
+import com.moa.api.search.service.SearchExecuteService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -13,6 +15,7 @@ import java.util.Map;
 public class GridService {
 
     private final GridRepositoryImpl gridRepository;
+    private final SearchExecuteService executeService;
 
     /**
      * 메인 그리드 데이터 조회
@@ -75,5 +78,20 @@ public class GridService {
      */
     public AggregateResponseDTO aggregate(AggregateRequestDTO req) {
         return gridRepository.aggregate(req);
+    }
+
+    public SearchResponseDTO getGridDataBySearchSpec(SearchDTO req) {
+        // 1) 데이터 조회는 SearchExecuteService 그대로 재사용
+        SearchDTO out = executeService.execute(req);
+
+        // 2) 컬럼 메타는 현재 테이블 기준 추출(프론트 그리드 헤더용)
+        String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "HTTP_PAGE" : req.getLayer();
+        var columns = gridRepository.getColumnsWithType(layer);
+
+        return SearchResponseDTO.builder()
+                .layer(layer)
+                .columns(columns)   // 프론트 타입(string/number/date/ip 등) 포함
+                .rows(out.getRows())// 실제 데이터
+                .build();
     }
 }
