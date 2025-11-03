@@ -104,7 +104,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
             String dataType = row.get("data_type").toString().toLowerCase();
             String udtType = row.get("udt_name").toString().toLowerCase();
 
-            // ✅ DB 타입 → 표준화된 타입으로 매핑
+            // DB 타입 → 표준화된 타입으로 매핑
             String mappedType = mapToFrontendType(udtType, dataType, name);
             String labelKo = labelMap.getOrDefault(name, null);
 
@@ -114,7 +114,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
         return columns;
     }
 
-    /** ✅ PostgreSQL 타입 → 프론트용 타입 매핑 */
+    /** PostgreSQL 타입 → 프론트용 타입 매핑 */
     private String mapToFrontendType(String udtType, String dataType, String colName) {
         String t = udtType != null ? udtType : dataType;
         t = t.toLowerCase();
