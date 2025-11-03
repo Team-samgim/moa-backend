@@ -228,43 +228,78 @@ public class QueryBuilder {
     // =========================
     // DISTINCT
     // =========================
-    public String buildDistinctSQL(String layer, String column, String filterModel,
-                                   boolean includeSelf,
-                                   Map<String,String> typeMap,
-                                   Map<String,String> rawTemporalKindMap) {
-        String tableName = resolveTableName(layer);
+    public String buildDistinctPagedSQL(
+            String layer, String column, String filterModel, boolean includeSelf,
+            String search, int offset, int limit,
+            Map<String,String> typeMap, Map<String,String> rawTemporalKindMap) {
 
-        String whereClause = includeSelf
+        String table = resolveTableName(layer);
+        String where = includeSelf
                 ? buildWhereClause(filterModel, typeMap, rawTemporalKindMap)
                 : buildWhereClauseExcludingField(filterModel, column, typeMap, rawTemporalKindMap);
 
         String colType = Optional.ofNullable(typeMap.get(column)).orElse("").toLowerCase();
-        String rawKind  = Optional.ofNullable(rawTemporalKindMap.get(column)).orElse("timestamp");
+        String rawKind = Optional.ofNullable(rawTemporalKindMap.get(column)).orElse("timestamp");
 
-        // ✅ 날짜형이면 KST DATE 표현식으로 선택
         String selectExpr = colType.equals("date")
                 ? toKstDateExpr(column, rawKind) + "::text"
                 : "\"" + column + "\"::text";
-
         String notNullExpr = colType.equals("date")
                 ? toKstDateExpr(column, rawKind)
                 : "\"" + column + "\"";
 
-        StringBuilder sql = new StringBuilder();
-        sql.append("SELECT DISTINCT ").append(selectExpr).append(" AS value FROM ").append(tableName);
+        StringBuilder sb = new StringBuilder();
+        sb.append("WITH base AS (SELECT ").append(selectExpr).append(" AS v FROM ").append(table).append(" ");
 
-        if (whereClause != null && !whereClause.isBlank()) {
-            sql.append(" WHERE ").append(whereClause).append(" AND ");
-        } else {
-            sql.append(" WHERE ");
+        // WHERE
+        if (where != null && !where.isBlank()) sb.append("WHERE ").append(where).append(" AND ");
+        else sb.append("WHERE ");
+        sb.append(notNullExpr).append(" IS NOT NULL ");
+
+        // 검색(prefix 권장)  ex) ILIKE 'term%'
+        if (search != null && !search.isBlank()) {
+            String esc = esc(search);
+            sb.append("AND ").append(selectExpr).append(" ILIKE '").append(esc).append("%' ");
         }
-
-        sql.append(notNullExpr).append(" IS NOT NULL ");
-        sql.append(" ORDER BY value ASC");
-
-        log.info("[QueryBuilder] ✅ DISTINCT SQL generated: {}", sql);
-        return sql.toString();
+        sb.append(")\nSELECT DISTINCT v FROM base ORDER BY v ASC OFFSET ").append(Math.max(0, offset))
+                .append(" LIMIT ").append(Math.max(1, limit));
+        return sb.toString();
     }
+
+    public String buildDistinctCountSQL(
+            String layer, String column, String filterModel, boolean includeSelf,
+            String search, Map<String,String> typeMap, Map<String,String> rawTemporalKindMap) {
+
+        String table = resolveTableName(layer);
+        String where = includeSelf
+                ? buildWhereClause(filterModel, typeMap, rawTemporalKindMap)
+                : buildWhereClauseExcludingField(filterModel, column, typeMap, rawTemporalKindMap);
+
+        String colType = Optional.ofNullable(typeMap.get(column)).orElse("").toLowerCase();
+        String rawKind = Optional.ofNullable(rawTemporalKindMap.get(column)).orElse("timestamp");
+
+        String selectExpr = colType.equals("date")
+                ? toKstDateExpr(column, rawKind) + "::text"
+                : "\"" + column + "\"::text";
+        String notNullExpr = colType.equals("date")
+                ? toKstDateExpr(column, rawKind)
+                : "\"" + column + "\"";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("WITH base AS (SELECT ").append(selectExpr).append(" AS v FROM ").append(table).append(" ");
+
+        if (where != null && !where.isBlank()) sb.append("WHERE ").append(where).append(" AND ");
+        else sb.append("WHERE ");
+        sb.append(notNullExpr).append(" IS NOT NULL ");
+
+        if (search != null && !search.isBlank()) {
+            String esc = esc(search);
+            sb.append("AND ").append(selectExpr).append(" ILIKE '").append(esc).append("%' ");
+        }
+        sb.append(")\nSELECT COUNT(*) FROM (SELECT DISTINCT v FROM base) t");
+        return sb.toString();
+    }
+
 
     private String buildDateInClause(String field, ArrayNode values, String rawTemporalKind) {
         String kstDate = toKstDateExpr(field, rawTemporalKind);

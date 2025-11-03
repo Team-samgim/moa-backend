@@ -2,6 +2,7 @@ package com.moa.api.grid.repository;
 
 import com.moa.api.grid.dto.AggregateRequestDTO;
 import com.moa.api.grid.dto.AggregateResponseDTO;
+import com.moa.api.grid.dto.DistinctPage;
 import com.moa.api.grid.dto.SearchResponseDTO;
 import com.moa.api.grid.util.QueryBuilder;
 import lombok.RequiredArgsConstructor;
@@ -49,20 +50,29 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
     }
 
     @Override
-    public List<String> getDistinctValues(String layer, String column, String filterModel) {
+    public DistinctPage getDistinctValuesPaged(
+            String layer, String column, String filterModel,
+            boolean includeSelf, String search, int offset, int limit) {
+
         Map<String,String> typeMap = buildFrontendTypeMap(layer);
         Map<String,String> temporalMap = buildTemporalKindMap(layer);
 
-        String sql = queryBuilder.buildDistinctSQL(
-                layer, column, filterModel, true, typeMap, temporalMap
-        );
-        log.info("[GridRepositoryImpl] DISTINCT SQL: {}", sql);
+        String sql = queryBuilder.buildDistinctPagedSQL(
+                layer, column, filterModel, includeSelf, search, offset, limit + 1, typeMap, temporalMap);
 
-        return jdbcTemplate.query(sql, (rs, rowNum) -> {
-            Object value = rs.getObject(1);
-            if (value instanceof PGobject pgObj) return pgObj.getValue();
-            return value != null ? value.toString() : null;
+        List<String> list = jdbcTemplate.query(sql, (rs, rn) -> {
+            Object v = rs.getObject(1);
+            return (v instanceof PGobject pg) ? pg.getValue() : (v == null ? null : v.toString());
         });
+
+        boolean hasMore = list.size() > limit;
+        if (hasMore) list.remove(list.size() - 1); // 초과분 제거
+
+        Integer next = hasMore ? offset + limit : null;
+
+        long total = 0L;
+
+        return new DistinctPage(list, total, offset, limit, next);
     }
 
     /** ✅ PostgreSQL용 컬럼명 + 타입 조회 (정규화 버전) */
