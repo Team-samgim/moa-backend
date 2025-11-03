@@ -23,9 +23,13 @@ public class GridController {
     public FilterResponseDTO getDistinctValues(
             @RequestParam(defaultValue = "ethernet") String layer,
             @RequestParam String field,
-            @RequestParam(required = false) String filterModel
+            @RequestParam(required = false) String filterModel,
+            @RequestParam(required = false, defaultValue = "") String search,
+            @RequestParam(required = false, defaultValue = "0") int offset,
+            @RequestParam(required = false, defaultValue = "100") int limit,
+            @RequestParam(required = false, defaultValue = "false") boolean includeSelf
     ) {
-        return gridService.getDistinctValues(layer, field, filterModel);
+        return gridService.getDistinctValues(layer, field, filterModel, search, offset, limit, includeSelf);
     }
 
     /** ✅ 집계(푸터 요약) */

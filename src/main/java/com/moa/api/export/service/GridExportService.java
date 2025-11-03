@@ -8,6 +8,8 @@ import com.moa.api.grid.repository.GridRepositoryImpl;
 import com.moa.api.grid.util.QueryBuilder;
 import com.moa.api.member.entity.Member;
 import com.moa.api.preset.entity.Preset;
+import com.moa.api.preset.entity.PresetOrigin;
+import com.moa.api.preset.entity.PresetType;
 import com.moa.api.preset.repository.PresetRepository;
 import com.moa.global.aws.S3Props;
 import com.moa.global.aws.S3Uploader;
@@ -57,12 +59,9 @@ public class GridExportService {
         Member memberRef = em.getReference(Member.class, memberId);
 
         // 2) 프리셋 확보 (없으면 생성)
-        Preset presetRef;
-        if (req.getPresetId() == null) {
-            presetRef = createPresetFromRequest(req, memberRef);
-        } else {
-            presetRef = em.getReference(Preset.class, req.getPresetId());
-        }
+        Preset presetRef = (req.getPresetId() == null)
+                ? createPresetFromRequest(req, memberRef)              // ✅ 새 프리셋 생성(EXPORT)
+                : em.getReference(Preset.class, req.getPresetId());
 
         // 3) 파일명 & objectKey
         final String safeBase = Optional.ofNullable(req.getFileName())
@@ -136,9 +135,10 @@ public class GridExportService {
         Preset preset = Preset.builder()
                 .member(member)              // ★ 연관관계 세팅
                 .presetName(name)
-                .presetType("GRID")
+                .presetType(PresetType.GRID)
                 .config(cfgNode)
                 .favorite(false)
+                .origin(PresetOrigin.EXPORT)
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -219,7 +219,14 @@ public class GridExportService {
                 }
             };
 
-            jdbcTemplate.query(sql, rch);
+            jdbcTemplate.query(con -> {
+                con.setAutoCommit(false);
+                var ps = con.prepareStatement(sql,
+                        java.sql.ResultSet.TYPE_FORWARD_ONLY,
+                        java.sql.ResultSet.CONCUR_READ_ONLY);
+                ps.setFetchSize(5000);
+                return ps;
+            }, rch);
         }
     }
 }

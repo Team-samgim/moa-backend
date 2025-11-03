@@ -29,8 +29,9 @@ public class Preset {
     @Column(name = "preset_name", length = 100, nullable = false)
     private String presetName;
 
-    @Column(name = "preset_type", length = 10, nullable = false) // GRID|PIVOT|CHART
-    private String presetType;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preset_type", length = 10, nullable = false)
+    private PresetType presetType;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "config", columnDefinition = "jsonb", nullable = false)
@@ -38,6 +39,10 @@ public class Preset {
 
     @Column(name = "favorite", nullable = false)
     private boolean favorite;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preset_origin", length = 10, nullable = false)
+    private PresetOrigin origin;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
