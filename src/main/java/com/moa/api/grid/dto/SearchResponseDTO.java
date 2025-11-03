@@ -24,5 +24,6 @@ public class SearchResponseDTO {
     public static class ColumnDTO {
         private String name;  // 컬럼명
         private String type;  // 컬럼 타입 (string, number, date, ip, mac 등)
+        private String labelKo;
     }
 }

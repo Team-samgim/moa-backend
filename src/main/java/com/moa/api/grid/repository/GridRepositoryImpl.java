@@ -79,6 +79,8 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
     public List<SearchResponseDTO.ColumnDTO> getColumnsWithType(String layer) {
         String tableName = switch (layer.toLowerCase()) {
             case "http_page" -> "http_page_sample";
+            case "tcp" -> "tcp_sample";
+            case "http_uri" -> "http_uri_sample";
             default -> "ethernet_sample";
         };
 
@@ -93,8 +95,10 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
     """;
 
         List<Map<String, Object>> result = jdbcTemplate.queryForList(colSql, tableName);
-        List<SearchResponseDTO.ColumnDTO> columns = new ArrayList<>();
 
+        Map<String, String> labelMap = loadLabelKoMap(layer);
+
+        List<SearchResponseDTO.ColumnDTO> columns = new ArrayList<>();
         for (Map<String, Object> row : result) {
             String name = row.get("column_name").toString();
             String dataType = row.get("data_type").toString().toLowerCase();
@@ -102,7 +106,9 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
 
             // ✅ DB 타입 → 표준화된 타입으로 매핑
             String mappedType = mapToFrontendType(udtType, dataType, name);
-            columns.add(new SearchResponseDTO.ColumnDTO(name, mappedType));
+            String labelKo = labelMap.getOrDefault(name, null);
+
+            columns.add(new SearchResponseDTO.ColumnDTO(name, mappedType, labelKo));
         }
 
         return columns;
@@ -299,5 +305,37 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
                 .append("LIMIT ").append(Math.max(1, limit));
 
         return jdbcTemplate.queryForList(sql.toString());
+    }
+
+    /** 레이어별 필드 메타 테이블명 */
+    private String resolveFieldMetaTable(String layer) {
+        return switch (layer.toLowerCase()) {
+            case "http_page" -> "http_page_fields";
+            case "http_uri"  -> "http_uri_fields";
+            case "l4_tcp"    -> "l4_tcp_fields";
+            default          -> "ethernet_fields";
+        };
+    }
+
+    /** 테이블 존재 여부 */
+    private boolean tableExists(String schema, String table) {
+        String sql = """
+        SELECT to_regclass(?)
+    """;
+        String reg = jdbcTemplate.queryForObject(sql, String.class, schema + "." + table);
+        return reg != null;
+    }
+
+    /** field_key -> label_ko 매핑 로드 */
+    private Map<String, String> loadLabelKoMap(String layer) {
+        String metaTable = resolveFieldMetaTable(layer);
+        if (!tableExists("public", metaTable)) return Map.of();
+
+        String sql = "SELECT field_key, label_ko FROM public." + metaTable;
+        Map<String, String> m = new HashMap<>();
+        jdbcTemplate.query(sql, rs -> {
+            m.put(rs.getString("field_key"), rs.getString("label_ko"));
+        });
+        return m;
     }
 }
