@@ -14,6 +14,8 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSetMetaData;
 import java.util.*;
 
+import static com.moa.api.grid.util.LayerTableResolver.resolveDataTable;
+
 @Slf4j
 @Repository
 @RequiredArgsConstructor
@@ -77,12 +79,8 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
 
     /** ✅ PostgreSQL용 컬럼명 + 타입 조회 (정규화 버전) */
     public List<SearchResponseDTO.ColumnDTO> getColumnsWithType(String layer) {
-        String tableName = switch (layer.toLowerCase()) {
-            case "http_page" -> "http_page_sample";
-            case "tcp" -> "tcp_sample";
-            case "http_uri" -> "http_uri_sample";
-            default -> "ethernet_sample";
-        };
+        String tableFqn = resolveDataTable(layer); // public.xxx_sample
+        String tableName = tableFqn.contains(".") ? tableFqn.split("\\.", 2)[1] : tableFqn;
 
         String colSql = """
         SELECT 
