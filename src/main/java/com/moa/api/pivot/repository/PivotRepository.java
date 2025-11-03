@@ -1,23 +1,25 @@
 package com.moa.api.pivot.repository;
 
+import com.moa.api.pivot.dto.DistinctValuesRequestDTO;
+import com.moa.api.pivot.dto.DistinctValuesPageDTO;
 import com.moa.api.pivot.dto.PivotQueryRequestDTO;
 import com.moa.api.pivot.dto.PivotQueryResponseDTO;
+import com.moa.api.pivot.model.TimeWindow;
+import com.moa.api.pivot.util.CursorCodec;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Repository
 @RequiredArgsConstructor
 public class PivotRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
+    private final SqlSupport sql;
 
     private String resolveTable(String layer) {
         return switch (layer) {
@@ -33,12 +35,12 @@ public class PivotRepository {
         String tableName = resolveTable(layer);
 
         String sql = """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = :tableName
-            ORDER BY ordinal_position
-        """;
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = :tableName
+        ORDER BY ordinal_position
+    """;
 
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("tableName", tableName);
@@ -50,166 +52,77 @@ public class PivotRepository {
         );
     }
 
-    // 공통 WHERE 절 빌더
-    private String buildWhereClause(
-            String timeColumn,
-            TimeWindow tw,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            MapSqlParameterSource paramsOut
-    ) {
-        StringBuilder where = new StringBuilder();
-        where.append(" WHERE ").append(timeColumn).append(" BETWEEN :from AND :to ");
+    /* ========= 1) 필드 값 페이지네이션 ========= */
 
-        paramsOut.addValue("from", tw.from); // LocalDateTime
-        paramsOut.addValue("to", tw.to);     // LocalDateTime
+    public DistinctValuesPageDTO pageDistinctValues(DistinctValuesRequestDTO req, TimeWindow tw) {
+        String table = sql.table(req.getLayer());
+        String col   = sql.col(req.getLayer(), req.getField());
 
-        if (filters != null) {
-            int idx = 0;
-            for (PivotQueryRequestDTO.FilterDef f : filters) {
-                String paramName = "f" + idx;
-                where.append(" AND ").append(f.getField()).append(" ")
-                        .append(f.getOp()).append(" :").append(paramName).append(" ");
-                paramsOut.addValue(paramName, f.getValue());
-                idx++;
-            }
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sql.where(req.getLayer(), "created_at", tw, req.getFilters(), ps);
+
+        // 검색어
+        if (req.getKeyword() != null && !req.getKeyword().isBlank()) {
+            where += " AND " + col + " ILIKE :kw ";
+            ps.addValue("kw", "%" + req.getKeyword() + "%");
         }
 
-        return where.toString();
+        // 커서 조건
+        if (req.getCursor() != null && !req.getCursor().isBlank()) {
+            where = sql.appendCursorCondition(req.getLayer(), req.getField(),
+                    req.getOrder(), where, req.getCursor(), ps);
+        }
+
+        String ord = "DESC".equalsIgnoreCase(req.getOrder()) ? "DESC" : "ASC";
+        int limit  = Math.min(req.getLimit() != null ? req.getLimit() : 50, 200);
+
+        String text = """
+            SELECT DISTINCT %s AS val
+            FROM %s
+            %s
+            ORDER BY %s %s NULLS LAST
+            LIMIT :lim
+        """.formatted(col, table, where, col, ord);
+        ps.addValue("lim", limit);
+
+        List<String> items = jdbc.query(text, ps, (rs, i) -> {
+            String v = rs.getString("val");
+            return (v == null || v.isBlank()) ? "(empty)" : v;
+        });
+
+        boolean hasMore   = items.size() == limit;
+        String nextCursor = hasMore ? CursorCodec.encode(items.get(items.size() - 1)) : null;
+
+        return new DistinctValuesPageDTO(items, nextCursor, hasMore);
     }
 
-    // 2) column 축으로 쓰일 상위 distinct 값 구하기
+    /* ========= 2) Column 축 상위 값 ========= */
+
     public List<String> findTopColumnValues(
             String layer,
             String columnField,
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw
     ) {
-        String tableName = resolveTable(layer);
+        String table = sql.table(layer);
+        String col   = sql.col(layer, columnField);
 
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        String where = buildWhereClause("created_at", tw, filters, params);
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sql.where(layer, "created_at", tw, filters, ps);
 
-        String sql = """
+        String text = """
             SELECT %s AS col_val, COUNT(*) AS cnt
             FROM %s
             %s
             GROUP BY %s
-            ORDER BY cnt DESC
+            ORDER BY cnt DESC, %s ASC
             LIMIT 10
-        """.formatted(columnField, tableName, where, columnField);
+        """.formatted(col, table, where, col, col);
 
-        return jdbc.query(sql, params, (rs, i) -> rs.getString("col_val"));
+        return jdbc.query(text, ps, (rs, i) -> rs.getString("col_val"));
     }
 
-    // 3-a) rowField 전체 요약 (rowField로는 group하지 않고 columnField로만 group)
-    //     -> RowGroup.cells 에 들어갈 맵
-    private Map<String, Map<String, Object>> fetchSummaryByColumn(
-            String layer,
-            String rowField,
-            String columnField,
-            List<String> columnValues,
-            List<PivotQueryRequestDTO.ValueDef> metrics,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw
-    ) {
-        String tableName = resolveTable(layer);
-
-        // SELECT 절 구성: SUM(field) AS "alias", ...
-        StringBuilder aggSelect = new StringBuilder();
-        for (int i = 0; i < metrics.size(); i++) {
-            var m = metrics.get(i);
-            if (i > 0) aggSelect.append(", ");
-            aggSelect.append(m.getAgg().toUpperCase())
-                    .append("(").append(m.getField()).append(")")
-                    .append(" AS \"").append(m.getAlias()).append("\"");
-        }
-
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        String where = buildWhereClause("created_at", tw, filters, params);
-
-        String sql = """
-            SELECT %s AS col_val,
-                   %s
-            FROM %s
-            %s
-            GROUP BY %s
-        """.formatted(columnField, aggSelect, tableName, where, columnField);
-
-        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
-
-        jdbc.query(sql, params, rs -> {
-            String colVal = rs.getString("col_val");
-            if (!columnValues.contains(colVal)) {
-                return;
-            }
-
-            Map<String, Object> metricMap = new LinkedHashMap<>();
-            for (PivotQueryRequestDTO.ValueDef m : metrics) {
-                Object v = rs.getObject(m.getAlias());
-                metricMap.put(m.getAlias(), v);
-            }
-            result.put(colVal, metricMap);
-        });
-
-        for (String colVal : columnValues) {
-            result.putIfAbsent(colVal, new LinkedHashMap<>());
-        }
-
-        return result;
-    }
-
-    // 3-b) rowField 값별 + columnField 값별로 집계
-    private Map<String /*row_val*/, Map<String /*col_val*/, Map<String,Object>>> fetchBreakdownByRowAndColumn(
-            String layer,
-            String rowField,
-            String columnField,
-            List<PivotQueryRequestDTO.ValueDef> metrics,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw
-    ) {
-        String tableName = resolveTable(layer);
-
-        StringBuilder aggSelect = new StringBuilder();
-        for (int i = 0; i < metrics.size(); i++) {
-            var m = metrics.get(i);
-            if (i > 0) aggSelect.append(", ");
-            aggSelect.append(m.getAgg().toUpperCase())
-                    .append("(").append(m.getField()).append(")")
-                    .append(" AS \"").append(m.getAlias()).append("\"");
-        }
-
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        String where = buildWhereClause("created_at", tw, filters, params);
-
-        String sql = """
-            SELECT %s AS row_val,
-                   %s AS col_val,
-                   %s
-            FROM %s
-            %s
-            GROUP BY %s, %s
-        """.formatted(rowField, columnField, aggSelect, tableName, where, rowField, columnField);
-
-        Map<String, Map<String, Map<String, Object>>> tmp = new LinkedHashMap<>();
-
-        jdbc.query(sql, params, rs -> {
-            String rowVal = rs.getString("row_val");
-            String colVal = rs.getString("col_val");
-
-            Map<String, Object> metricMap = new LinkedHashMap<>();
-            for (PivotQueryRequestDTO.ValueDef m : metrics) {
-                Object v = rs.getObject(m.getAlias());
-                metricMap.put(m.getAlias(), v);
-            }
-
-            tmp.computeIfAbsent(rowVal, k -> new LinkedHashMap<>())
-                    .put(colVal, metricMap);
-        });
-
-        // 반환 형태에 맞게 캐스팅
-        Map<String, Map<String, Map<String,Object>>> casted = tmp;
-        return (Map) casted;
-    }
+    /* ========= 3) Row distinct 값 ========= */
 
     private List<String> fetchDistinctRowValues(
             String layer,
@@ -217,102 +130,176 @@ public class PivotRepository {
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw
     ) {
-        String tableName = resolveTable(layer);
+        String table = sql.table(layer);
+        String row   = sql.col(layer, rowField);
 
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        String where = buildWhereClause("created_at", tw, filters, params);
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sql.where(layer, "created_at", tw, filters, ps);
 
-        String sql = """
-            SELECT %s AS row_val,
-                   COUNT(*) AS cnt
+        String text = """
+            SELECT %s AS row_val, COUNT(*) AS cnt
             FROM %s
             %s
             GROUP BY %s
             ORDER BY %s ASC
-        """.formatted(rowField, tableName, where, rowField, rowField);
+        """.formatted(row, table, where, row, row);
 
-
-        return jdbc.query(sql, params, (rs, i) -> rs.getString("row_val"));
+        return jdbc.query(text, ps, (rs, i) -> rs.getString("row_val"));
     }
 
-    public List<PivotQueryResponseDTO.RowGroup> buildRowGroups(
+    /* ========= 4) Column별 요약 ========= */
+
+    private Map<String, Map<String, Object>> fetchSummaryByColumn(
             String layer,
-            List<PivotQueryRequestDTO.RowDef> rows,   // ex: [{field:"vlan_id"}, {field:"country_name_res"}]
-            List<PivotQueryRequestDTO.ValueDef> values, // metrics
-            String columnField,                      // ex: "src_port"
-            List<String> columnValues,               // ex: ["ip_num_1","ip_num_2"]
+            String columnField,
+            List<String> columnValues,
+            List<PivotQueryRequestDTO.ValueDef> metrics,
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw
     ) {
+        String table = sql.table(layer);
+        String col   = sql.col(layer, columnField);
 
+        String aggSelect = metrics.stream()
+                .map(m -> m.getAgg().toUpperCase() + "(" + sql.col(layer, m.getField()) + ") AS \"" + m.getAlias() + "\"")
+                .collect(Collectors.joining(", "));
+
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sql.where(layer, "created_at", tw, filters, ps);
+
+        String text = """
+            SELECT %s AS col_val,
+                   %s
+            FROM %s
+            %s
+            GROUP BY %s
+        """.formatted(col, aggSelect, table, where, col);
+
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+
+        jdbc.query(text, ps, rs -> {
+            String colVal = rs.getString("col_val");
+            if (colVal == null || !columnValues.contains(colVal)) return;
+
+            Map<String, Object> metricMap = new LinkedHashMap<>();
+            for (PivotQueryRequestDTO.ValueDef m : metrics) {
+                metricMap.put(m.getAlias(), rs.getObject(m.getAlias()));
+            }
+            result.put(colVal, metricMap);
+        });
+
+        // 빠진 컬럼 보강
+        for (String v : columnValues) {
+            result.putIfAbsent(v, new LinkedHashMap<>());
+        }
+
+        return result;
+    }
+
+    /* ========= 5) Row x Column breakdown ========= */
+
+    private Map<String, Map<String, Map<String, Object>>> fetchBreakdownByRowAndColumn(
+            String layer,
+            String rowField,
+            String columnField,
+            List<PivotQueryRequestDTO.ValueDef> metrics,
+            List<PivotQueryRequestDTO.FilterDef> filters,
+            TimeWindow tw
+    ) {
+        String table = sql.table(layer);
+        String row   = sql.col(layer, rowField);
+        String col   = sql.col(layer, columnField);
+
+        String aggSelect = metrics.stream()
+                .map(m -> m.getAgg().toUpperCase() + "(" + sql.col(layer, m.getField()) + ") AS \"" + m.getAlias() + "\"")
+                .collect(Collectors.joining(", "));
+
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sql.where(layer, "created_at", tw, filters, ps);
+
+        String text = """
+            SELECT %s AS row_val,
+                   %s AS col_val,
+                   %s
+            FROM %s
+            %s
+            GROUP BY %s, %s
+        """.formatted(row, col, aggSelect, table, where, row, col);
+
+        Map<String, Map<String, Map<String, Object>>> tmp = new LinkedHashMap<>();
+
+        jdbc.query(text, ps, rs -> {
+            String rv = rs.getString("row_val");
+            String cv = rs.getString("col_val");
+
+            Map<String, Object> metricMap = new LinkedHashMap<>();
+            for (PivotQueryRequestDTO.ValueDef m : metrics) {
+                metricMap.put(m.getAlias(), rs.getObject(m.getAlias()));
+            }
+
+            tmp.computeIfAbsent(rv, k -> new LinkedHashMap<>())
+                    .put(cv, metricMap);
+        });
+
+        return tmp;
+    }
+
+    /* ========= 6) RowGroup 빌드 ========= */
+
+    public List<PivotQueryResponseDTO.RowGroup> buildRowGroups(
+            String layer,
+            List<PivotQueryRequestDTO.RowDef> rows,
+            List<PivotQueryRequestDTO.ValueDef> values,
+            String columnField,
+            List<String> columnValues,
+            List<PivotQueryRequestDTO.FilterDef> filters,
+            TimeWindow tw
+    ) {
         List<PivotQueryResponseDTO.RowGroup> groups = new ArrayList<>();
 
         for (PivotQueryRequestDTO.RowDef rowDef : rows) {
-
             String rowField = rowDef.getField();
 
-            // 1) rowField의 distinct 값 목록
-            List<String> distinctRowVals = fetchDistinctRowValues(layer, rowField, filters, tw);
-            int distinctCount = distinctRowVals.size();
+            List<String> rowVals = fetchDistinctRowValues(layer, rowField, filters, tw);
+            int distinctCount = rowVals.size();
 
-            // 2) 상위 요약(그룹 전체) -> column별 agg
             Map<String, Map<String, Object>> summaryCells =
-                    fetchSummaryByColumn(layer, rowField, columnField, columnValues, values, filters, tw);
+                    fetchSummaryByColumn(layer, columnField, columnValues, values, filters, tw);
 
-            // 3) row별 breakdown (row_val + column_val 별 agg)
             Map<String, Map<String, Map<String, Object>>> breakdown =
                     fetchBreakdownByRowAndColumn(layer, rowField, columnField, values, filters, tw);
 
-            // 4) RowGroup.items 만들기
             List<PivotQueryResponseDTO.RowGroupItem> items = new ArrayList<>();
-            for (String rowVal : distinctRowVals) {
-
+            for (String rv : rowVals) {
                 Map<String, Map<String, Object>> childCells = new LinkedHashMap<>();
+                Map<String, Map<String, Object>> byCol = breakdown.getOrDefault(rv, Map.of());
 
-                Map<String, Map<String, Object>> byColForThisRowVal = breakdown.getOrDefault(rowVal, Map.of());
-
-                for (String colVal : columnValues) {
-                    Map<String, Object> metricMap = byColForThisRowVal.getOrDefault(colVal, Map.of());
-                    childCells.put(colVal, metricMap);
+                for (String cv : columnValues) {
+                    childCells.put(cv, byCol.getOrDefault(cv, Map.of()));
                 }
 
                 items.add(
                         PivotQueryResponseDTO.RowGroupItem.builder()
-                                .valueLabel(rowVal)
-                                .displayLabel(rowVal)
+                                .valueLabel(rv)
+                                .displayLabel(rv)
                                 .cells(childCells)
                                 .build()
                 );
             }
 
-            // 5) RowGroup 자체 구성
-            PivotQueryResponseDTO.RowGroup group =
+            groups.add(
                     PivotQueryResponseDTO.RowGroup.builder()
                             .rowLabel(rowField)
                             .displayLabel(rowField + " (" + distinctCount + ")")
-                            .rowInfo(
-                                    PivotQueryResponseDTO.RowInfo.builder()
-                                            .count(distinctCount)
-                                            .build()
-                            )
+                            .rowInfo(PivotQueryResponseDTO.RowInfo.builder()
+                                    .count(distinctCount)
+                                    .build())
                             .cells(summaryCells)
                             .items(items)
-                            .build();
-
-            groups.add(group);
+                            .build()
+            );
         }
 
         return groups;
-    }
-
-    // 조회 범위
-    public static class TimeWindow {
-        public final LocalDateTime from;
-        public final LocalDateTime to;
-
-        public TimeWindow(LocalDateTime from, LocalDateTime to) {
-            this.from = from;
-            this.to = to;
-        }
     }
 }

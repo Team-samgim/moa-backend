@@ -1,18 +1,14 @@
 package com.moa.api.pivot.service;
 
-import com.moa.api.pivot.dto.PivotFieldsResponseDTO;
-import com.moa.api.pivot.dto.PivotQueryRequestDTO;
-import com.moa.api.pivot.dto.PivotQueryResponseDTO;
+import com.moa.api.pivot.dto.*;
+import com.moa.api.pivot.model.TimeWindow;
 import com.moa.api.pivot.repository.PivotRepository;
-import com.moa.api.pivot.repository.PivotRepository.TimeWindow;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
+import java.time.ZoneOffset;
 import java.util.List;
 
 @Service
@@ -21,123 +17,138 @@ public class PivotService {
 
     private final PivotRepository pivotRepository;
 
-    public PivotFieldsResponseDTO getFieldsForLayer(String layer) {
-        // 1. DB에서 실제 컬럼명 가져오기
-        List<String> columnNames = pivotRepository.findColumnNamesForLayer(layer);
+    public PivotFieldsResponseDTO getFields(String layerRaw) {
+        String layer = (layerRaw == null || layerRaw.isBlank())
+                ? "HTTP_PAGE"
+                : layerRaw;
 
-        // 2. 임시 FieldMeta 리스트
-        List<PivotFieldsResponseDTO.FieldMeta> fieldMetaList = columnNames.stream()
-            .map(col -> PivotFieldsResponseDTO.FieldMeta.builder()
-                .name(col)
-                .build())
-            .toList();
+        List<String> cols = pivotRepository.findColumnNamesForLayer(layer);
+
+        List<PivotFieldsResponseDTO.FieldMeta> fieldMetaList = cols.stream()
+                .map(col -> PivotFieldsResponseDTO.FieldMeta.builder()
+                        .name(col)
+                        .build())
+                .toList();
 
         return PivotFieldsResponseDTO.builder()
-            .layer(layer)
-            .fields(fieldMetaList)
-            .build();
+                .layer(layer)
+                .fields(fieldMetaList)
+                .build();
     }
 
-    // /api/pivot/query
-    public PivotQueryResponseDTO runPivotQuery(PivotQueryRequestDTO request) {
-        validateRequest(request);
+    /* ===== 공통: timeRange + customRange → TimeWindow 변환 ===== */
+    private TimeWindow resolveTimeWindow(
+            PivotQueryRequestDTO.TimeRange timeRange,
+            PivotQueryRequestDTO.CustomRange customRange
+    ) {
+        // 1) 직접 설정(from/to) 우선
+        if (customRange != null
+                && customRange.getFrom() != null
+                && customRange.getTo() != null) {
 
-        PivotRepository.TimeWindow tw = resolveTimeWindow(request);
+            LocalDateTime from = parseToLocalDateTime(customRange.getFrom());
+            LocalDateTime to   = parseToLocalDateTime(customRange.getTo());
 
+            return new TimeWindow(from, to);
+        }
+
+        // 2) preset 사용 (1h, 2h, 24h, 1w ...)
+        //    timeRange.now 도 String 이라서 LocalDateTime 으로 변환 필요
+        LocalDateTime now = (timeRange != null && timeRange.getNow() != null)
+                ? parseToLocalDateTime(timeRange.getNow())
+                : LocalDateTime.now(ZoneOffset.UTC);
+
+        String preset = timeRange != null ? timeRange.getValue() : "1h";
+
+        return switch (preset) {
+            case "1h"  -> new TimeWindow(now.minusHours(1), now);
+            case "2h"  -> new TimeWindow(now.minusHours(2), now);
+            case "24h" -> new TimeWindow(now.minusHours(24), now);
+            case "1w"  -> new TimeWindow(now.minusDays(7), now);
+            default    -> new TimeWindow(now.minusHours(1), now);
+        };
+    }
+
+    private LocalDateTime parseToLocalDateTime(String s) {
+        if (s == null || s.isBlank()) {
+            return LocalDateTime.now(ZoneOffset.UTC);
+        }
+
+        if (s.endsWith("Z")) {
+            // 2025-01-01T00:00:00Z 형태
+            return OffsetDateTime.parse(s).toLocalDateTime();
+        }
+        // 2025-01-01T00:00:00 형태
+        return LocalDateTime.parse(s);
+    }
+
+    /* ===== 1) 피벗 실행 ===== */
+    public PivotQueryResponseDTO runPivot(PivotQueryRequestDTO req) {
+
+        TimeWindow tw = resolveTimeWindow(req.getTimeRange(), req.getCustomRange());
+
+        String columnFieldName = (req.getColumn() != null) ? req.getColumn().getField() : null;
+
+        // column 값 상위 10개
         List<String> columnValues = pivotRepository.findTopColumnValues(
-                request.getLayer(),
-                request.getColumn().getField(),
-                request.getFilters(),
+                req.getLayer(),
+                columnFieldName,
+                req.getFilters(),
                 tw
         );
 
-        var rowGroups = pivotRepository.buildRowGroups(
-                request.getLayer(),
-                request.getRows(),
-                request.getValues(),
-                request.getColumn().getField(),
+        // row 그룹들
+        List<PivotQueryResponseDTO.RowGroup> rowGroups = pivotRepository.buildRowGroups(
+                req.getLayer(),
+                req.getRows(),
+                req.getValues(),
+                columnFieldName,
                 columnValues,
-                request.getFilters(),
+                req.getFilters(),
                 tw
         );
 
-        PivotQueryResponseDTO.Summary summary = PivotQueryResponseDTO.Summary.builder()
-                .rowCountText("합계: " + rowGroups.size() + "행")
+        // 요청의 values -> Metric DTO로 매핑
+        List<PivotQueryResponseDTO.Metric> metrics = null;
+        if (req.getValues() != null) {
+            metrics = req.getValues().stream()
+                    .map(v -> PivotQueryResponseDTO.Metric.builder()
+                            .alias(v.getAlias())   // "합계: total"
+                            .field(v.getField())   // "total"
+                            .agg(v.getAgg())       // "sum"
+                            .build()
+                    )
+                    .toList();
+        }
+
+        // ColumnField 조립
+        PivotQueryResponseDTO.ColumnField columnField = PivotQueryResponseDTO.ColumnField.builder()
+                .name(columnFieldName)   // 예: "src_port"
+                .values(columnValues)    // 예: ["ip_num_1", "ip_num_2", ...]
+                .metrics(metrics)        // 값 기준 metric 정보
                 .build();
 
+        // Summary (일단 간단하게 row 개수 기준으로)
+        PivotQueryResponseDTO.Summary summary = PivotQueryResponseDTO.Summary.builder()
+                .rowCountText("합계: " + (rowGroups != null ? rowGroups.size() : 0) + "행")
+                .build();
+
+        // 최종 응답
         return PivotQueryResponseDTO.builder()
-                .columnField(
-                        PivotQueryResponseDTO.ColumnField.builder()
-                                .name(request.getColumn().getField())
-                                .values(columnValues)
-                                .metrics(
-                                        request.getValues().stream()
-                                                .map(v ->
-                                                        PivotQueryResponseDTO.Metric.builder()
-                                                                .alias(v.getAlias())
-                                                                .field(v.getField())
-                                                                .agg(v.getAgg())
-                                                                .build()
-                                                )
-                                                .toList()
-                                )
-                                .build()
-                )
+                .columnField(columnField)
                 .rowGroups(rowGroups)
                 .summary(summary)
                 .build();
     }
 
-    private void validateRequest(PivotQueryRequestDTO request) {
-        // TODO: 나중에 필드 유효성 체크, 중복 금지 등 추가하기
-        // 레이어 유효성
-        // column 1개인지
-        // rows/values 중복 필드 없는지
-        // values의 agg 허용 가능 여부 등
-    }
 
-    private PivotRepository.TimeWindow resolveTimeWindow(PivotQueryRequestDTO request) {
-        // 1) now를 OffsetDateTime으로 파싱
-        //    예: "2025-10-27T07:20:00.000Z"
-        OffsetDateTime nowOffset = OffsetDateTime.parse(
-                request.getTimeRange().getNow(),
-                DateTimeFormatter.ISO_OFFSET_DATE_TIME
-        );
+    /* ===== 2) 필드 값 페이지네이션 (무한 스크롤 + 검색) ===== */
+    public DistinctValuesPageDTO getDistinctValuesPage(DistinctValuesRequestDTO req) {
+        TimeWindow tw = resolveTimeWindow(req.getTimeRange(), req.getCustomRange());
+        // 기본값 보정
+        if (req.getOrder() == null) req.setOrder("asc");
+        if (req.getLimit() == null || req.getLimit() <= 0) req.setLimit(50);
 
-        OffsetDateTime fromOffset;
-        OffsetDateTime toOffset;
-
-        if ("preset".equals(request.getTimeRange().getType())) {
-            String v = request.getTimeRange().getValue(); // "1h", "2h", "24h", "1w"
-            Duration dur;
-            switch (v) {
-                case "1h" -> dur = Duration.ofHours(1);
-                case "2h" -> dur = Duration.ofHours(2);
-                case "24h" -> dur = Duration.ofHours(24);
-                case "1w" -> dur = Duration.ofDays(7);
-                default -> throw new IllegalArgumentException("Unsupported preset: " + v);
-            }
-            toOffset = nowOffset;
-            fromOffset = nowOffset.minus(dur);
-
-        } else { // "custom"
-            // customRange.from / to 는 ISO 문자열이라고 가정
-            String fromStr = request.getCustomRange().getFrom();
-            String toStr = request.getCustomRange().getTo();
-
-            // 예: "2025-10-27T00:00:00.000Z"
-            OffsetDateTime parsedFrom = OffsetDateTime.parse(fromStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-            OffsetDateTime parsedTo   = OffsetDateTime.parse(toStr,   DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-
-            fromOffset = parsedFrom;
-            toOffset = parsedTo;
-        }
-
-        ZoneId zone = ZoneId.of("UTC");
-
-        LocalDateTime fromLdt = fromOffset.atZoneSameInstant(zone).toLocalDateTime();
-        LocalDateTime toLdt   = toOffset.atZoneSameInstant(zone).toLocalDateTime();
-
-        return new PivotRepository.TimeWindow(fromLdt, toLdt);
+        return pivotRepository.pageDistinctValues(req, tw);
     }
 }
