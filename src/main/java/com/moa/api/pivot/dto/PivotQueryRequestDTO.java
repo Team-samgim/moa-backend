@@ -28,30 +28,30 @@ public class PivotQueryRequestDTO {
     @Data
     public static class TimeRange {
         private String type;   // "preset" | "custom"
-        private String value;  // "1h" | "2h" | "24h" | "1w"
-        private String now;    // ISO string
+        private String value;
+        private String now;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     @NoArgsConstructor
     @Data
     public static class CustomRange {
-        private String from;   // ISO string
-        private String to;     // ISO string
+        private String from;
+        private String to;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     @NoArgsConstructor
     @Data
     public static class ColumnDef {
-        private String field; // ex: "src_ip"
+        private String field;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     @NoArgsConstructor
     @Data
     public static class RowDef {
-        private String field; // ex: "vlan_id", "country_name_res", ...
+        private String field;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -71,4 +71,15 @@ public class PivotQueryRequestDTO {
         private String op;     // ex: "=", "IN", "LIKE", ...
         private Object value;  // ex: "KR" or [1,12,21,...]
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @NoArgsConstructor
+    @Data
+    public static class TimeDef {
+        private String field;
+        private Long fromEpoch;
+        private Long toEpoch;
+    }
+
+    private TimeDef time;
 }

@@ -59,6 +59,11 @@ public class PivotRepository {
         String col   = sql.col(req.getLayer(), req.getField());
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
+        String timeField = "created_at";
+        if (req.getTime() != null && req.getTime().getField() != null) {
+            timeField = req.getTime().getField();
+        }
+
         String where = sql.where(req.getLayer(), "created_at", tw, req.getFilters(), ps);
 
         // 검색어
@@ -257,32 +262,43 @@ public class PivotRepository {
     ) {
         List<PivotQueryResponseDTO.RowGroup> groups = new ArrayList<>();
 
+        boolean hasColumn = columnField != null && !columnField.isBlank()
+                && columnValues != null && !columnValues.isEmpty();
+        boolean hasMetrics = values != null && !values.isEmpty();
+
         for (PivotQueryRequestDTO.RowDef rowDef : rows) {
             String rowField = rowDef.getField();
 
             List<String> rowVals = fetchDistinctRowValues(layer, rowField, filters, tw);
             int distinctCount = rowVals.size();
 
-            Map<String, Map<String, Object>> summaryCells =
-                    fetchSummaryByColumn(layer, columnField, columnValues, values, filters, tw);
+            Map<String, Map<String, Object>> summaryCells = new LinkedHashMap<>();
+            Map<String, Map<String, Map<String, Object>>> breakdown = new LinkedHashMap<>();
 
-            Map<String, Map<String, Map<String, Object>>> breakdown =
-                    fetchBreakdownByRowAndColumn(layer, rowField, columnField, values, filters, tw);
+            if (hasColumn && hasMetrics) {
+                summaryCells =
+                        fetchSummaryByColumn(layer, columnField, columnValues, values, filters, tw);
+
+                breakdown =
+                        fetchBreakdownByRowAndColumn(layer, rowField, columnField, values, filters, tw);
+            }
 
             List<PivotQueryResponseDTO.RowGroupItem> items = new ArrayList<>();
             for (String rv : rowVals) {
                 Map<String, Map<String, Object>> childCells = new LinkedHashMap<>();
-                Map<String, Map<String, Object>> byCol = breakdown.getOrDefault(rv, Map.of());
 
-                for (String cv : columnValues) {
-                    childCells.put(cv, byCol.getOrDefault(cv, Map.of()));
+                if (hasColumn && hasMetrics) {
+                    Map<String, Map<String, Object>> byCol = breakdown.getOrDefault(rv, Map.of());
+                    for (String cv : columnValues) {
+                        childCells.put(cv, byCol.getOrDefault(cv, Map.of()));
+                    }
                 }
 
                 items.add(
                         PivotQueryResponseDTO.RowGroupItem.builder()
                                 .valueLabel(rv)
                                 .displayLabel(rv)
-                                .cells(childCells)
+                                .cells(childCells) // column 없으면 빈 map
                                 .build()
                 );
             }
@@ -294,7 +310,7 @@ public class PivotRepository {
                             .rowInfo(PivotQueryResponseDTO.RowInfo.builder()
                                     .count(distinctCount)
                                     .build())
-                            .cells(summaryCells)
+                            .cells(summaryCells) // column 없으면 빈 map
                             .items(items)
                             .build()
             );
