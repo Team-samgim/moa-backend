@@ -4,7 +4,7 @@
   },
   "devDependencies": {
     "husky": "^9.1.7",
-    "jira-prepare-commit-msg": "^1.7.2"
+    "jira-prepare-commit-msg": "^1.7.0"
   },
   "jira-prepare-commit-msg": {
     "messagePattern": "[$J] $M",

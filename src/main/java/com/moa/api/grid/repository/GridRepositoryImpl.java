@@ -154,7 +154,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
     private Map<String,String> buildTemporalKindMap(String layer) {
         String tableName = switch (layer.toLowerCase()) {
             case "http_page" -> "http_page_sample";
-            case "http_uri"  -> "uri_sample";
+            case "http_uri"  -> "http_uri_sample";
             case "l4_tcp"    -> "tcp_sample";
             default -> "ethernet_sample";
         };
