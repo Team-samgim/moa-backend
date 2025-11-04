@@ -44,4 +44,5 @@ application-secret.yml
 /init/
 .env
 
-node_modules
+node_modules/
+/node_modules/
