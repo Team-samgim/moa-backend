@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SqlSupport {
 
     private final SimpleColumnLoader columnLoader;
-    private final NamedParameterJdbcTemplate jdbc;   // ✅ 타입 조회용
+    private final NamedParameterJdbcTemplate jdbc;
 
     // layer -> table 매핑
     private static final Map<String, String> TABLE = Map.of(
