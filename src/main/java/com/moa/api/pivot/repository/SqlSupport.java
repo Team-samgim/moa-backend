@@ -25,7 +25,7 @@ public class SqlSupport {
             "HTTP_PAGE", "http_page_sample",
             "Ethernet",  "ethernet_sample",
             "TCP",       "tcp_sample",
-            "HTTP_URI",  "uri_sample"
+            "HTTP_URI",  "http_uri_sample"
     );
 
     // layer마다 허용 컬럼 캐시

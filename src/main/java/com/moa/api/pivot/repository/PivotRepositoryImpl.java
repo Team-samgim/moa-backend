@@ -26,7 +26,7 @@ public class PivotRepositoryImpl implements PivotRepository {
             case "HTTP_PAGE" -> "http_page_sample";
             case "Ethernet"  -> "ethernet_sample";
             case "TCP"       -> "tcp_sample";
-            case "HTTP_URI"  -> "uri_sample";
+            case "HTTP_URI"  -> "http_uri_sample";
             default -> throw new IllegalArgumentException("Unsupported layer: " + layer);
         };
     }
