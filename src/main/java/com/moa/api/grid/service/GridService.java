@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -81,17 +82,54 @@ public class GridService {
     }
 
     public SearchResponseDTO getGridDataBySearchSpec(SearchDTO req) {
+        System.out.println("🔍 [GridService] 받은 요청: " + req);
+        System.out.println("  - layer: " + req.getLayer());
+        System.out.println("  - columns: " + req.getColumns());
+        System.out.println("  - conditions: " + req.getConditions());
+        System.out.println("  - time: " + req.getTime());
+
         // 1) 데이터 조회는 SearchExecuteService 그대로 재사용
         SearchDTO out = executeService.execute(req);
 
-        // 2) 컬럼 메타는 현재 테이블 기준 추출(프론트 그리드 헤더용)
+        System.out.println("✅ [GridService] SearchExecuteService 결과:");
+        System.out.println("  - rows 개수: " + (out.getRows() != null ? out.getRows().size() : "null"));
+        System.out.println("  - total: " + out.getTotal());
+        if (out.getRows() != null && !out.getRows().isEmpty()) {
+            System.out.println("  - 첫 번째 row keys: " + out.getRows().get(0).keySet());
+        }
+
+        // 2) layer 결정
         String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "HTTP_PAGE" : req.getLayer();
-        var columns = gridRepository.getColumnsWithType(layer);
+
+        // 3) 전체 컬럼 메타 가져오기
+        var allColumns = gridRepository.getColumnsWithType(layer);
+        System.out.println("📋 [GridService] 전체 컬럼 개수: " + allColumns.size());
+
+        // ✅ 4) 프론트에서 요청한 컬럼만 필터링
+        List<String> requestedColumns = req.getColumns();
+        List<SearchResponseDTO.ColumnDTO> filteredColumns;
+
+        if (requestedColumns != null && !requestedColumns.isEmpty()) {
+            System.out.println("🔎 [GridService] 요청된 컬럼: " + requestedColumns);
+            // 요청된 컬럼 순서대로 필터링
+            filteredColumns = requestedColumns.stream()
+                    .map(colName -> allColumns.stream()
+                            .filter(col -> col.getName() != null && col.getName().equals(colName))
+                            .findFirst()
+                            .orElse(null))
+                    .filter(col -> col != null)
+                    .collect(Collectors.toList());
+            System.out.println("✅ [GridService] 필터링된 컬럼 개수: " + filteredColumns.size());
+        } else {
+            System.out.println("⚠️  [GridService] 요청된 컬럼이 없어서 전체 컬럼 사용");
+            // 컬럼 지정 없으면 전체
+            filteredColumns = allColumns;
+        }
 
         return SearchResponseDTO.builder()
                 .layer(layer)
-                .columns(columns)   // 프론트 타입(string/number/date/ip 등) 포함
-                .rows(out.getRows())// 실제 데이터
+                .columns(filteredColumns)  // ✅ rows와 일치하는 컬럼만!
+                .rows(out.getRows())       // ✅ 실제 데이터
                 .build();
     }
 }
