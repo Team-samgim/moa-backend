@@ -6,13 +6,12 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 @Getter
 @Entity
-@Table(name = "http_page_fields")
+@Table(name = "layer_fields") // 기본값 (실제로는 동적으로 변경됨)
 @NoArgsConstructor(access = lombok.AccessLevel.PROTECTED)
-public class HttpPageField {
+public class LayerFieldMeta {
 
     @Id
     @Column(name = "field_key", nullable = false)
@@ -27,8 +26,7 @@ public class HttpPageField {
     @Column(name = "is_info")
     private Boolean isInfo;
 
-    // 편의 메서드 (필요시)
-    public HttpPageField(String fieldKey, String dataType) {
+    public LayerFieldMeta(String fieldKey, String dataType) {
         this.fieldKey = fieldKey;
         this.dataType = dataType;
     }
