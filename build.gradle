@@ -46,6 +46,22 @@ dependencies {
 	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+
+    // Querydsl
+    implementation 'com.querydsl:querydsl-sql:5.0.0'
+    implementation 'com.querydsl:querydsl-sql-spring:5.0.0'
+    implementation 'com.querydsl:querydsl-sql-codegen:5.0.0'
+    annotationProcessor 'com.querydsl:querydsl-apt:5.0.0:jakarta'
+    annotationProcessor 'jakarta.annotation:jakarta.annotation-api'
+    annotationProcessor 'jakarta.persistence:jakarta.persistence-api'
+
+    // AWS s3
+    implementation(platform("software.amazon.awssdk:bom:2.25.66"))
+    implementation("software.amazon.awssdk:s3")
+    implementation("software.amazon.awssdk:sts")
+
+    // Apache CSV
+    implementation("org.apache.commons:commons-csv:1.11.0")
 }
 
 tasks.named('test') {
