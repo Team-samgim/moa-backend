@@ -29,6 +29,9 @@ public interface GridRepositoryCustom {
             boolean includeSelf,
             String search,
             int offset,
-            int limit
+            int limit,
+            String orderBy,
+            String order,
+            String baseSpecJson
     );
 }

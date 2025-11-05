@@ -42,11 +42,11 @@ public class GridService {
     }
 
     public FilterResponseDTO getDistinctValues(
-            String layer, String field, String filterModel, String search, int offset, int limit, boolean includeSelfFromClient) {
+            String layer, String field, String filterModel, String search, int offset, int limit, boolean includeSelfFromClient, String orderBy, String order, String baseSpecJson) {
 
         boolean includeSelf = hasSelfFilter(filterModel, field);
         var page = gridRepository.getDistinctValuesPaged(
-                layer, field, filterModel, includeSelf, search, offset, limit);
+                layer, field, filterModel, includeSelf, search, offset, limit, orderBy, order, baseSpecJson);
 
         return FilterResponseDTO.builder()
                 .field(field)
@@ -128,8 +128,9 @@ public class GridService {
 
         return SearchResponseDTO.builder()
                 .layer(layer)
-                .columns(filteredColumns)  // ✅ rows와 일치하는 컬럼만!
-                .rows(out.getRows())       // ✅ 실제 데이터
+                .columns(filteredColumns)
+                .rows(out.getRows())
+                .total(out.getTotal())  // ★ 추가: total 포함
                 .build();
     }
 }
