@@ -23,6 +23,8 @@ public class PivotQueryRequestDTO {
 
     private List<FilterDef> filters;
 
+    private TimeDef time;
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     @NoArgsConstructor
     @Data
@@ -81,5 +83,13 @@ public class PivotQueryRequestDTO {
         private Long toEpoch;
     }
 
-    private TimeDef time;
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @NoArgsConstructor
+    @Data
+    public static class SortDef {
+        private String mode;       // "value" (나중에 "row", "column"으로 확장 가능)
+        private String valueField; // ValueDef.field (ex: "page_http_len_res")
+        private String agg;        // ValueDef.agg   (ex: "sum")
+        private String direction;  // "asc" | "desc"
+    }
 }

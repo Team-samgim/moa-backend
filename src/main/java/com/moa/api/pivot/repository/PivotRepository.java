@@ -1,9 +1,6 @@
 package com.moa.api.pivot.repository;
 
-import com.moa.api.pivot.dto.DistinctValuesPageDTO;
-import com.moa.api.pivot.dto.DistinctValuesRequestDTO;
-import com.moa.api.pivot.dto.PivotQueryRequestDTO;
-import com.moa.api.pivot.dto.PivotQueryResponseDTO;
+import com.moa.api.pivot.dto.*;
 import com.moa.api.pivot.model.TimeWindow;
 
 import java.util.List;
@@ -21,6 +18,7 @@ public interface PivotRepository {
             TimeWindow tw
     );
 
+    /** 화면 상단 row group 리스트 + summary만 (subRows X) */
     List<PivotQueryResponseDTO.RowGroup> buildRowGroups(
             String layer,
             List<PivotQueryRequestDTO.RowDef> rows,
@@ -29,5 +27,18 @@ public interface PivotRepository {
             List<String> columnValues,
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw
+    );
+
+    /** 특정 rowField에 대한 subRows + breakdown만 */
+    List<PivotQueryResponseDTO.RowGroupItem> buildRowGroupItems(
+            String layer,
+            String rowField,
+            List<PivotQueryRequestDTO.ValueDef> values,
+            String columnField,
+            List<String> columnValues,
+            List<PivotQueryRequestDTO.FilterDef> filters,
+            TimeWindow tw,
+            int offset,
+            int limit
     );
 }

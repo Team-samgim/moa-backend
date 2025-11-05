@@ -141,4 +141,105 @@ public class PivotService {
 
         return pivotRepository.pageDistinctValues(req, tw);
     }
+
+    /* ===== 3) 특정 row group의 subRows + breakdown 조회 ===== */
+    public RowGroupItemsResponseDTO getRowGroupItems(RowGroupItemsRequestDTO req) {
+
+//        TimeWindow tw = resolveTimeWindow(req.getTime());
+//
+//        String layer = req.getLayer();
+//        String rowField = req.getRowField();
+//
+//        String columnFieldName = (req.getColumn() != null)
+//                ? req.getColumn().getField()
+//                : null;
+//
+//        List<String> columnValues = List.of();
+//        if (columnFieldName != null && !columnFieldName.isBlank()) {
+//            columnValues = pivotRepository.findTopColumnValues(
+//                    layer,
+//                    columnFieldName,
+//                    req.getFilters(),
+//                    tw
+//            );
+//        }
+//
+//        List<PivotQueryResponseDTO.RowGroupItem> items =
+//                pivotRepository.buildRowGroupItems(
+//                        layer,
+//                        rowField,
+//                        req.getValues(),
+//                        columnFieldName,
+//                        columnValues,
+//                        req.getFilters(),
+//                        tw
+//                );
+//
+//        String rowLabel = rowField + " (" + items.size() + ")";
+//
+//        return RowGroupItemsResponseDTO.builder()
+//                .rowField(rowField)
+//                .rowLabel(rowLabel)
+//                .items(items)
+//                .build();
+
+        TimeWindow tw = resolveTimeWindow(req.getTime());
+
+        String layer = req.getLayer();
+        String rowField = req.getRowField();
+
+        String columnFieldName = (req.getColumn() != null)
+                ? req.getColumn().getField()
+                : null;
+
+        List<String> columnValues = List.of();
+        if (columnFieldName != null && !columnFieldName.isBlank()) {
+            columnValues = pivotRepository.findTopColumnValues(
+                    layer,
+                    columnFieldName,
+                    req.getFilters(),
+                    tw
+            );
+        }
+
+        // cursor 파싱
+        int offset = 0;
+        if (req.getCursor() != null && req.getCursor().startsWith("offset:")) {
+            offset = Integer.parseInt(req.getCursor().substring(7));
+        }
+
+        int limit = req.getLimit() != null ? req.getLimit() : 50;
+
+        // items 조회 (limit + 1로 hasMore 판단)
+        List<PivotQueryResponseDTO.RowGroupItem> items =
+                pivotRepository.buildRowGroupItems(
+                        layer,
+                        rowField,
+                        req.getValues(),
+                        columnFieldName,
+                        columnValues,
+                        req.getFilters(),
+                        tw,
+                        offset,
+                        limit + 1
+                );
+
+        // hasMore 판단 및 초과분 제거
+        boolean hasMore = items.size() > limit;
+        if (hasMore) {
+            items = items.subList(0, limit);
+        }
+
+        String nextCursor = hasMore ? "offset:" + (offset + limit) : null;
+
+        String rowLabel = rowField + " (" + items.size() + ")";
+
+        return RowGroupItemsResponseDTO.builder()
+                .rowField(rowField)
+                .rowLabel(rowLabel)
+                .items(items)
+                .nextCursor(nextCursor)
+                .hasMore(hasMore)
+                .build();
+    }
 }
