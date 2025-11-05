@@ -16,16 +16,6 @@ public class GridController {
 
     private final GridService gridService;
 
-    /**
-     * 메인 데이터 조회
-     */
-//    @GetMapping("/randering")
-//    public SearchResponseDTO getGridData(@Valid @ModelAttribute GridRequestDTO request) {
-//        if (request.getLayer() == null || request.getLayer().isBlank()) {
-//            throw new IllegalArgumentException("layer is required");
-//        }
-//        return gridService.getGridData(request);
-//    }
     @PostMapping("/grid/search")
     public SearchResponseDTO gridSearchBySearchSpec(@RequestBody SearchDTO req) {
         return gridService.getGridDataBySearchSpec(req);
@@ -54,7 +44,7 @@ public class GridController {
     }
 
     /**
-     * ✅ 집계(푸터 요약)
+     * 집계(푸터 요약)
      */
     @PostMapping("/aggregate")
     public AggregateResponseDTO aggregate(@RequestBody AggregateRequestDTO request) {

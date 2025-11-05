@@ -105,9 +105,15 @@ public class SearchExecuteService {
             selectClause = "SELECT *";
         }
 
+        String orderExpr = switch (fieldTypeMap.getOrDefault(orderBy, "TEXT").toUpperCase()) {
+            case "NUMBER" -> "t." + orderBy + "::numeric";
+            case "DATETIME" -> "t." + orderBy; // timestamp 계열은 그대로
+            default -> "t." + orderBy + "::text"; // 문자열 계열은 명시적 캐스팅
+        };
+
         String sql = selectClause + " FROM " + table + " t " +
                 where +
-                " ORDER BY t." + orderBy + " " + order +
+                " ORDER BY " + orderExpr + " " + order +
                 " LIMIT :limit OFFSET :offset";
 
         System.out.println("📝 [SearchExecuteService] 생성된 SQL:");
