@@ -1,12 +1,10 @@
 package com.moa.api.pivot.repository;
 
-import com.moa.api.pivot.dto.DistinctValuesPageDTO;
-import com.moa.api.pivot.dto.DistinctValuesRequestDTO;
-import com.moa.api.pivot.dto.PivotQueryRequestDTO;
-import com.moa.api.pivot.dto.PivotQueryResponseDTO;
+import com.moa.api.pivot.dto.*;
 import com.moa.api.pivot.model.TimeWindow;
 import com.moa.api.pivot.util.CursorCodec;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -14,6 +12,7 @@ import org.springframework.stereotype.Repository;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class PivotRepositoryImpl implements PivotRepository {
@@ -138,27 +137,63 @@ public class PivotRepositoryImpl implements PivotRepository {
 
     /* ========= 3) Row distinct 값 ========= */
 
-    private List<String> fetchDistinctRowValues(
+    public List<String> fetchDistinctRowValues(
             String layer,
             String rowField,
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw
     ) {
         String table = sql.table(layer);
-        String row   = sql.col(layer, rowField);
+        String col = sql.col(layer, rowField);
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
         String where = sql.where(layer, "created_at", tw, filters, ps);
 
         String text = """
-            SELECT %s AS row_val, COUNT(*) AS cnt
-            FROM %s
-            %s
-            GROUP BY %s
-            ORDER BY %s ASC
-        """.formatted(row, table, where, row, row);
+        SELECT DISTINCT %s AS val
+        FROM %s
+        %s
+        ORDER BY %s ASC
+    """.formatted(col, table, where, col);
 
-        return jdbc.query(text, ps, (rs, i) -> rs.getString("row_val"));
+        return jdbc.query(text, ps, (rs, i) -> rs.getString("val"));
+    }
+
+    public List<String> fetchDistinctRowValues(
+            String layer,
+            String rowField,
+            List<PivotQueryRequestDTO.FilterDef> filters,
+            TimeWindow tw,
+            int offset,
+            int limit
+    ) {
+        String table = sql.table(layer);
+        String col = sql.col(layer, rowField);
+
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sql.where(layer, "created_at", tw, filters, ps);
+
+        String text = """
+        SELECT DISTINCT %s AS val
+        FROM %s
+        %s
+        ORDER BY %s ASC
+        LIMIT :limit OFFSET :offset
+    """.formatted(col, table, where, col);
+
+        ps.addValue("limit", limit);
+        ps.addValue("offset", offset);
+
+//        return jdbc.query(text, ps, (rs, i) -> rs.getString("val"));
+        log.info("=== fetchDistinctRowValues ===");
+        log.info("SQL: {}", text);
+        log.info("offset: {}, limit: {}", offset, limit);
+
+        List<String> result = jdbc.query(text, ps, (rs, i) -> rs.getString("val"));
+
+        log.info("Returned {} rows", result.size());
+
+        return result;
     }
 
     /* ========= 4) Column별 요약 ========= */
@@ -276,42 +311,20 @@ public class PivotRepositoryImpl implements PivotRepository {
                 && columnValues != null && !columnValues.isEmpty();
         boolean hasMetrics = values != null && !values.isEmpty();
 
+        // 1) 컬럼 요약 == 공통: 1번 계산
+        Map<String, Map<String, Object>> summaryCells = new LinkedHashMap<>();
+        if (hasColumn && hasMetrics) {
+            summaryCells =
+                    fetchSummaryByColumn(layer, columnField, columnValues, values, filters, tw);
+        }
+
+        // 2) 각 row group: distinct 값 + 개수 계산
         for (PivotQueryRequestDTO.RowDef rowDef : rows) {
             String rowField = rowDef.getField();
 
+            // 해당 필드의 distinct 값들
             List<String> rowVals = fetchDistinctRowValues(layer, rowField, filters, tw);
             int distinctCount = rowVals.size();
-
-            Map<String, Map<String, Object>> summaryCells = new LinkedHashMap<>();
-            Map<String, Map<String, Map<String, Object>>> breakdown = new LinkedHashMap<>();
-
-            if (hasColumn && hasMetrics) {
-                summaryCells =
-                        fetchSummaryByColumn(layer, columnField, columnValues, values, filters, tw);
-
-                breakdown =
-                        fetchBreakdownByRowAndColumn(layer, rowField, columnField, values, filters, tw);
-            }
-
-            List<PivotQueryResponseDTO.RowGroupItem> items = new ArrayList<>();
-            for (String rv : rowVals) {
-                Map<String, Map<String, Object>> childCells = new LinkedHashMap<>();
-
-                if (hasColumn && hasMetrics) {
-                    Map<String, Map<String, Object>> byCol = breakdown.getOrDefault(rv, Map.of());
-                    for (String cv : columnValues) {
-                        childCells.put(cv, byCol.getOrDefault(cv, Map.of()));
-                    }
-                }
-
-                items.add(
-                        PivotQueryResponseDTO.RowGroupItem.builder()
-                                .valueLabel(rv)
-                                .displayLabel(rv)
-                                .cells(childCells) // column 없으면 빈 map
-                                .build()
-                );
-            }
 
             groups.add(
                     PivotQueryResponseDTO.RowGroup.builder()
@@ -320,12 +333,60 @@ public class PivotRepositoryImpl implements PivotRepository {
                             .rowInfo(PivotQueryResponseDTO.RowInfo.builder()
                                     .count(distinctCount)
                                     .build())
-                            .cells(summaryCells) // column 없으면 빈 map
-                            .items(items)
+                            .cells(summaryCells)    // 모든 row group이 공유
+                            .items(List.of())       // subRows 계산 X
                             .build()
             );
         }
 
         return groups;
+    }
+
+    @Override
+    public List<PivotQueryResponseDTO.RowGroupItem> buildRowGroupItems(
+            String layer,
+            String rowField,
+            List<PivotQueryRequestDTO.ValueDef> values,
+            String columnField,
+            List<String> columnValues,
+            List<PivotQueryRequestDTO.FilterDef> filters,
+            TimeWindow tw,
+            int offset,
+            int limit
+    ) {
+        boolean hasColumn = columnField != null && !columnField.isBlank()
+                && columnValues != null && !columnValues.isEmpty();
+        boolean hasMetrics = values != null && !values.isEmpty();
+
+        List<String> rowVals = fetchDistinctRowValues(layer, rowField, filters, tw, offset, limit);
+
+        Map<String, Map<String, Map<String, Object>>> breakdown = new LinkedHashMap<>();
+
+        if (hasColumn && hasMetrics) {
+            breakdown =
+                    fetchBreakdownByRowAndColumn(layer, rowField, columnField, values, filters, tw);
+        }
+
+        List<PivotQueryResponseDTO.RowGroupItem> items = new ArrayList<>();
+        for (String rv : rowVals) {
+            Map<String, Map<String, Object>> childCells = new LinkedHashMap<>();
+
+            if (hasColumn && hasMetrics) {
+                Map<String, Map<String, Object>> byCol = breakdown.getOrDefault(rv, Map.of());
+                for (String cv : columnValues) {
+                    childCells.put(cv, byCol.getOrDefault(cv, Map.of()));
+                }
+            }
+
+            items.add(
+                    PivotQueryResponseDTO.RowGroupItem.builder()
+                            .valueLabel(rv)
+                            .displayLabel(rv)
+                            .cells(childCells)
+                            .build()
+            );
+        }
+
+        return items;
     }
 }

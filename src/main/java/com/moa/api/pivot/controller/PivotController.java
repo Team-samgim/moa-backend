@@ -29,4 +29,12 @@ public class PivotController {
     public DistinctValuesPageDTO values(@RequestBody DistinctValuesRequestDTO req) {
         return pivotService.getDistinctValuesPage(req);
     }
+
+    /** 특정 row group(field)에 대한 subRows + breakdown 조회 */
+    @PostMapping("/row-group/items")
+    public RowGroupItemsResponseDTO getRowGroupItems(
+            @RequestBody RowGroupItemsRequestDTO req
+    ) {
+        return pivotService.getRowGroupItems(req);
+    }
 }
