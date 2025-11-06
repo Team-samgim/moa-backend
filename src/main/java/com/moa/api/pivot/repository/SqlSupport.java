@@ -113,8 +113,8 @@ public class SqlSupport {
         String tcol = col(layer, timeColumn);
 
         sb.append(" WHERE ").append(tcol).append(" BETWEEN :from AND :to ");
-        ps.addValue("from", tw.getFrom());
-        ps.addValue("to", tw.getTo());
+        ps.addValue("from", tw.getFromEpoch());  // double
+        ps.addValue("to", tw.getToEpoch());      // double
 
         if (filters == null || filters.isEmpty()) return sb.toString();
 

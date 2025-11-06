@@ -41,22 +41,19 @@ public class PivotService {
     private TimeWindow resolveTimeWindow(
             PivotQueryRequestDTO.TimeDef time
     ) {
-        // 방어 코드
+        // 방어 코드 (기본: 최근 1시간, UNIX seconds)
         if (time == null || time.getFromEpoch() == null || time.getToEpoch() == null) {
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            return new TimeWindow(now.minusHours(1), now);
+            long nowSec = Instant.now().getEpochSecond();
+            return new TimeWindow(nowSec - 3600, nowSec);  // 최근 1시간
         }
 
-        LocalDateTime from = Instant.ofEpochSecond(time.getFromEpoch())
-                .atZone(ZoneOffset.UTC)
-                .toLocalDateTime();
-
-        LocalDateTime to = Instant.ofEpochSecond(time.getToEpoch())
-                .atZone(ZoneOffset.UTC)
-                .toLocalDateTime();
+        // 프론트에서 보내준 epoch 그대로 사용 (초 단위라고 가정)
+        double from = time.getFromEpoch();
+        double to   = time.getToEpoch();
 
         return new TimeWindow(from, to);
     }
+
 
     private LocalDateTime parseToLocalDateTime(String s) {
         if (s == null || s.isBlank()) {

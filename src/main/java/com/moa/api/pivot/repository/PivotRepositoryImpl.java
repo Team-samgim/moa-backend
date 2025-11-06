@@ -60,12 +60,15 @@ public class PivotRepositoryImpl implements PivotRepository {
         String col   = sql.col(req.getLayer(), req.getField());
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
-        String timeField = "created_at";
-        if (req.getTime() != null && req.getTime().getField() != null) {
+
+        // 기본 시간 컬럼: ts_server_nsec
+        String timeField = "ts_server_nsec";
+        if (req.getTime() != null && req.getTime().getField() != null &&
+                !req.getTime().getField().isBlank()) {
             timeField = req.getTime().getField();
         }
 
-        String where = sql.where(req.getLayer(), "created_at", tw, req.getFilters(), ps);
+        String where = sql.where(req.getLayer(), timeField, tw, req.getFilters(), ps);
 
         // 검색어
         if (req.getKeyword() != null && !req.getKeyword().isBlank()) {
@@ -121,7 +124,7 @@ public class PivotRepositoryImpl implements PivotRepository {
         String col   = sql.col(layer, columnField);
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "created_at", tw, filters, ps);
+        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
 
         String text = """
             SELECT %s AS col_val, COUNT(*) AS cnt
@@ -147,7 +150,7 @@ public class PivotRepositoryImpl implements PivotRepository {
         String col = sql.col(layer, rowField);
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "created_at", tw, filters, ps);
+        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
 
         String text = """
         SELECT DISTINCT %s AS val
@@ -171,7 +174,7 @@ public class PivotRepositoryImpl implements PivotRepository {
         String col = sql.col(layer, rowField);
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "created_at", tw, filters, ps);
+        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
 
         String text = """
         SELECT DISTINCT %s AS val
@@ -214,7 +217,7 @@ public class PivotRepositoryImpl implements PivotRepository {
                 .collect(Collectors.joining(", "));
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "created_at", tw, filters, ps);
+        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
 
         String text = """
             SELECT %s AS col_val,
@@ -264,7 +267,7 @@ public class PivotRepositoryImpl implements PivotRepository {
                 .collect(Collectors.joining(", "));
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "created_at", tw, filters, ps);
+        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
 
         String text = """
             SELECT %s AS row_val,
