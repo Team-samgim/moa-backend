@@ -1,9 +1,9 @@
 package com.moa.api.auth.controller;
 
-import com.moa.api.auth.dto.LoginRequest;
-import com.moa.api.auth.dto.ReissueRequest;
-import com.moa.api.auth.dto.SignupRequest;
-import com.moa.api.auth.dto.TokenResponse;
+import com.moa.api.auth.dto.LoginRequestDTO;
+import com.moa.api.auth.dto.ReissueRequestDTO;
+import com.moa.api.auth.dto.SignupRequestDTO;
+import com.moa.api.auth.dto.TokenResponseDTO;
 import com.moa.api.auth.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,20 +25,20 @@ public class AuthController {
 
     @Operation(summary = "회원가입", description = "회원 정보를 받아 신규 회원을 등록")
     @PostMapping("/signup")
-    public ResponseEntity<Void> signup(@RequestBody @Valid SignupRequest req) {
+    public ResponseEntity<Void> signup(@RequestBody @Valid SignupRequestDTO req) {
         authService.signup(req);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
     @Operation(summary = "로그인", description = "loginId/비밀번호로 로그인하여 accessToken과 refreshToken을 발급")
     @PostMapping("/login")
-    public ResponseEntity<TokenResponse> login(@RequestBody @Valid LoginRequest req) {
+    public ResponseEntity<TokenResponseDTO> login(@RequestBody @Valid LoginRequestDTO req) {
         return ResponseEntity.ok(authService.login(req));
     }
 
     @Operation(summary = "액세스 토큰 재발급", description = "refreshToken을 전달하면 서명·만료를 검증한 뒤 새 accessToken을 발급, refreshToken은 그대로 반환")
     @PostMapping("/reissue")
-    public ResponseEntity<TokenResponse> reissue(@RequestBody ReissueRequest req) {
+    public ResponseEntity<TokenResponseDTO> reissue(@RequestBody ReissueRequestDTO req) {
         return ResponseEntity.ok(authService.reissue(req.refreshToken()));
     }
 
