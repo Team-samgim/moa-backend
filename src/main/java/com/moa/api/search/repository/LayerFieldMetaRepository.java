@@ -1,10 +1,12 @@
+// 메인 Repository
 package com.moa.api.search.repository;
 
 import com.moa.api.search.entity.LayerFieldMeta;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.List;
+public interface LayerFieldMetaRepository
+        extends JpaRepository<LayerFieldMeta, String>,
+        LayerFieldMetaRepositoryCustom {
 
-public interface LayerFieldMetaRepository {
-    // 기본 메서드만 유지 (http_page_fields용 폴백)
-    List<LayerFieldMeta> findAllByOrderByFieldKeyAsc();
+    // JpaRepository의 기본 메서드 + Custom 메서드 모두 사용 가능
 }
