@@ -429,7 +429,9 @@ public class QueryBuilder {
         StringBuilder sb = new StringBuilder();
         sb.append("WITH base AS (")
                 .append(" SELECT ").append(selectExpr).append(" AS v, ")
-                .append("t.").append(q(safeOrderBy)).append(" AS ord")
+                .append("t.").append(q(safeOrderBy))
+                .append(safeOrderBy.equals("ts_server_nsec") ? "::numeric" : "")
+                .append(" AS ord")
                 .append(" FROM ").append(table).append(" t ");
 
         if (where != null && !where.isBlank()) sb.append(" WHERE ").append(where).append(" AND ");

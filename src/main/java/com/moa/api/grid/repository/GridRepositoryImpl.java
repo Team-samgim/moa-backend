@@ -165,7 +165,11 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
         // 기존 WHERE/타입 판정 로직 재사용
         Map<String, String> typeMap = getFrontendTypeMap(layer);
         Map<String, String> temporalMap = getTemporalKindMap(layer);
-        String where = queryBuilder.buildWhereClause(req.getFilterModel(), typeMap, temporalMap);
+        String whereBase = queryBuilder.buildWhereFromBaseSpec(req.getBaseSpecJson(), typeMap, temporalMap);
+        String whereFilter = queryBuilder.buildWhereClause(req.getFilterModel(), typeMap, temporalMap);
+        String where = java.util.stream.Stream.of(whereBase, whereFilter)
+                .filter(s -> s != null && !s.isBlank())
+                .collect(java.util.stream.Collectors.joining(" AND "));
 
         Map<String, Object> result = new LinkedHashMap<>();
 
@@ -195,8 +199,9 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
                     if (ops.contains("avg")) agg.put("avg", row.get("a"));
                     if (ops.contains("min")) agg.put("min", row.get("mn"));
                     if (ops.contains("max")) agg.put("max", row.get("mx"));
-                } else { // string / ip / mac
-                    Map<String, Object> row = stringAgg(table, col, where);
+                } else { // string / ip / mac / json
+                    boolean isJson = "json".equals(t);   // json/jsonb 모두 mapToFrontendType에서 "json"으로 옴
+                    Map<String, Object> row = stringAgg(table, col, where, isJson);
                     Object cntObj = row.get("cnt");
                     Object uniqObj = row.get("uniq");
                     long cnt = (cntObj == null) ? 0L : ((Number) cntObj).longValue();
@@ -208,7 +213,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
                     boolean wantTop = ops.contains("top1") || ops.contains("top2") || ops.contains("top3");
                     // 전부 유니크면 Top 계산 스킵
                     if (wantTop && cnt > uniq) {
-                        List<Map<String, Object>> list = topNList(table, col, where, 3);
+                        List<Map<String, Object>> list = topNList(table, col, where, 3, isJson);
 
                         java.util.function.Function<Object, Object> valOf = v -> {
                             if (v instanceof org.postgresql.util.PGobject pg) return pg.getValue();
@@ -244,36 +249,36 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
                 .append("AVG(").append(col).append(") AS a, ")
                 .append("MIN(").append(col).append(") AS mn, ")
                 .append("MAX(").append(col).append(") AS mx ")
-                .append("FROM ").append(table);
+                .append("FROM ").append(table).append(" t");
         if (where != null && !where.isBlank()) sql.append(" WHERE ").append(where);
         return jdbcTemplate.queryForMap(sql.toString());
     }
 
-    private Map<String, Object> stringAgg(String table, String col, String where) {
+    private Map<String, Object> stringAgg(String table, String col, String where, boolean distinctAsText) {
+        String distinctExpr = distinctAsText ? (col + "::text") : col;
         StringBuilder sql = new StringBuilder()
                 .append("SELECT COUNT(").append(col).append(") AS cnt, ")
-                .append("COUNT(DISTINCT ").append(col).append(") AS uniq ")
-                .append("FROM ").append(table);
+                .append("COUNT(DISTINCT ").append(distinctExpr).append(") AS uniq ")
+                .append("FROM ").append(table).append(" t");
         if (where != null && !where.isBlank()) sql.append(" WHERE ").append(where);
         return jdbcTemplate.queryForMap(sql.toString());
     }
 
-    private List<Map<String, Object>> topNList(String table, String col, String where, int limit) {
+    private List<Map<String, Object>> topNList(String table, String col, String where, int limit, boolean distinctAsText) {
+        String valExpr = col + "::text"; // TopN은 텍스트 기준
+        String notEmpty = "NULLIF(BTRIM(" + valExpr + "), '') IS NOT NULL";
+
         StringBuilder sql = new StringBuilder()
-                .append("SELECT ").append(col).append(" AS val, COUNT(*) AS c ")
-                .append("FROM ").append(table).append(" ");
-        boolean hasWhere = (where != null && !where.isBlank());
+                .append("SELECT ").append(valExpr).append(" AS val, COUNT(*) AS c ")
+                .append("FROM ").append(table).append(" t "); // ← 공백 포함
 
-        // NULL 제외
-        if (hasWhere) {
-            sql.append("WHERE ").append(where).append(" AND ").append(col).append(" IS NOT NULL ");
-        } else {
-            sql.append("WHERE ").append(col).append(" IS NOT NULL ");
-        }
+        List<String> conds = new ArrayList<>();
+        if (where != null && !where.isBlank()) conds.add(where);
+        conds.add(notEmpty); // NULL/빈문자/공백만 제외
 
-        // 동률일 때 알파벳/숫자순 안정 정렬
-        sql.append("GROUP BY ").append(col)
-                .append(" ORDER BY c DESC, ").append(col).append(" ASC ")
+        sql.append("WHERE ").append(String.join(" AND ", conds)).append(" ")
+                .append("GROUP BY ").append(valExpr).append(" ")
+                .append("ORDER BY c DESC, ").append(valExpr).append(" ASC ")
                 .append("LIMIT ").append(Math.max(1, limit));
 
         return jdbcTemplate.queryForList(sql.toString());
