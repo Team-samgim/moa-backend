@@ -54,33 +54,39 @@ public class QueryBuilder {
                                           String sortField,
                                           String sortDirection,
                                           String filterModel,
+                                          String baseSpecJson,
                                           Map<String, String> typeMap,
                                           Map<String, String> rawTemporalKindMap) {
 
         String table = resolveTableName(layer);
-        if (columns == null || columns.isEmpty()) {
-            throw new IllegalArgumentException("columns is required");
-        }
+        if (columns == null || columns.isEmpty()) throw new IllegalArgumentException("columns is required");
 
         String selectCols = String.join(", ", columns.stream()
                 .map(c -> q(c.contains("-") ? c.split("-")[0] : c))
                 .toList());
 
         StringBuilder sql = new StringBuilder("SELECT ").append(selectCols)
-                .append(" FROM ").append(table);
+                .append(" FROM ").append(table).append(" t");
 
-        String where = buildWhereClause(filterModel, typeMap, rawTemporalKindMap);
+        // ✅ WHERE = baseSpec(시간+조건) AND 활성필터
+        String whereBase = buildWhereFromBaseSpec(baseSpecJson, typeMap, rawTemporalKindMap);
+        String whereFilter = buildWhereClause(filterModel, typeMap, rawTemporalKindMap);
+
+        String where = Stream.of(whereBase, whereFilter)
+                .filter(s -> s != null && !s.isBlank())
+                .collect(java.util.stream.Collectors.joining(" AND "));
+
         if (!where.isEmpty()) sql.append(" WHERE ").append(where);
 
-        // 정렬 처리 개선
-        if (sortField != null && !sortField.isBlank()) {
-            String safeSort = sanitizeOrderBy(sortField, typeMap, "ts_server_nsec");
-            String safeDir = sanitizeDir(sortDirection);
-
-            log.info("[QueryBuilder] Export 정렬: {} {}", safeSort, safeDir);
-            sql.append(" ORDER BY ").append(q(safeSort)).append(" ").append(safeDir);
+        String safeSort = sanitizeOrderBy(sortField, typeMap, "ts_server_nsec");
+        String safeDir = sanitizeDir(sortDirection); // null이면 DESC 반환
+        log.info("[QueryBuilder] Export 정렬: {} {}", safeSort, safeDir);
+        sql.append(" ORDER BY ");
+        if ("ts_server_nsec".equalsIgnoreCase(safeSort)) {
+            sql.append("\"ts_server_nsec\"::numeric ").append(safeDir);
+        } else {
+            sql.append(q(safeSort)).append(" ").append(safeDir);
         }
-
         log.info("[QueryBuilder] Export SQL: {}", sql);
         return sql.toString();
     }
@@ -468,8 +474,9 @@ public class QueryBuilder {
                 String field = time.path("field").asText(null);
                 Long from = time.hasNonNull("fromEpoch") ? time.get("fromEpoch").asLong() : null;
                 Long to = time.hasNonNull("toEpoch") ? time.get("toEpoch").asLong() : null;
+                boolean inclusive = time.path("inclusive").asBoolean(true);
                 if (field != null && from != null && to != null) {
-                    parts.add(buildTimeRangeClause(field, from, to, typeMap, rawTemporalKindMap));
+                    parts.add(buildTimeRangeClause(field, from, to, inclusive, typeMap, rawTemporalKindMap));
                 }
             }
 
@@ -499,7 +506,11 @@ public class QueryBuilder {
                     if (join != null) cParts.add(join);
                     cParts.add("(" + expr + ")");
                 }
-                if (!cParts.isEmpty()) parts.add(String.join(" ", cParts));
+                if (!cParts.isEmpty()) {
+                    String condExpr = String.join(" ", cParts);
+                    boolean not = root.path("not").asBoolean(false); // SearchExecuteService의 global NOT
+                    parts.add(not ? "NOT (" + condExpr + ")" : "(" + condExpr + ")");
+                }
             }
 
             return String.join(" AND ", parts);
@@ -513,6 +524,7 @@ public class QueryBuilder {
             String field,
             long fromEpoch,
             long toEpoch,
+            boolean inclusive,
             Map<String, String> typeMap,
             Map<String, String> rawTemporalKindMap
     ) {
@@ -521,24 +533,24 @@ public class QueryBuilder {
         String raw = rawTemporalKindMap != null ? rawTemporalKindMap.getOrDefault(field, "") : "";
 
         String col = "t." + q(field);
+        String ge = inclusive ? " >= " : " > ";
+        String le = inclusive ? " <= " : " < ";
 
-        // 숫자형(예: ts_server_nsec): 초/나노초 모두 허용 (그리드와 단위 불일치 안전)
         if ("number".equalsIgnoreCase(fType)) {
-            long fromNs = Math.multiplyExact(fromEpoch, 1_000_000_000L);
-            long toNs = Math.multiplyExact(toEpoch, 1_000_000_000L);
-            // 초 단위 저장 컬럼 대비도 허용
-            return "(" + col + " BETWEEN " + fromNs + " AND " + toNs + " OR " +
-                    col + " BETWEEN " + fromEpoch + " AND " + toEpoch + ")";
+            return "(" + col + ge + fromEpoch + " AND " + col + le + toEpoch + ")";
         }
 
         if ("timestamptz".equalsIgnoreCase(raw)) {
-            return col + " BETWEEN to_timestamp(" + fromEpoch + ") AND to_timestamp(" + toEpoch + ")";
+            return "(" + col + ge + "to_timestamp(" + fromEpoch + ") AND "
+                    + col + le + "to_timestamp(" + toEpoch + "))";
         }
         if ("timestamp".equalsIgnoreCase(raw)) {
-            return "(" + col + " AT TIME ZONE 'UTC') BETWEEN to_timestamp(" + fromEpoch + ") AND to_timestamp(" + toEpoch + ")";
+            return "((" + col + " AT TIME ZONE 'UTC')" + ge + "to_timestamp(" + fromEpoch + ") AND " +
+                    "(" + col + " AT TIME ZONE 'UTC')" + le + "to_timestamp(" + toEpoch + "))";
         }
         if ("date".equalsIgnoreCase(fType)) {
-            return col + " BETWEEN to_timestamp(" + fromEpoch + ")::date AND to_timestamp(" + toEpoch + ")::date";
+            return "(" + col + ge + "to_timestamp(" + fromEpoch + ")::date AND "
+                    + col + le + "to_timestamp(" + toEpoch + ")::date)";
         }
         return "";
     }

@@ -16,6 +16,7 @@ public class ExportGridRequest {
     private String layer;              // "ethernet" | "http_page" ...
     private List<String> columns;      // 내보낼 컬럼 순서
     private String filterModelJson;    // makeFilterModel(...) 결과 JSON 문자열
+    private String baseSpecJson;
     private String sortField;          // 정렬 컬럼
     private String sortDirection;      // ASC|DESC
 
