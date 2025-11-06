@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.stream.Stream;
 
 import static com.moa.api.grid.util.LayerTableResolver.resolveDataTable;
 
@@ -18,23 +19,49 @@ public class QueryBuilder {
     private static final String APP_TZ = "Asia/Seoul";
     private static final boolean TS_WO_TZ_IS_UTC = true;
 
-    private String q(String col) { return "\"" + col + "\""; }
-    private String esc(String s) { return s == null ? "" : s.replace("'", "''"); }
+    private String q(String col) {
+        return "\"" + col.replace("\"", "\"\"") + "\"";
+    }
 
-    // --- export 전용: 선택 컬럼 + LIMIT 없음 ---
+    private String esc(String s) {
+        return s == null ? "" : s.replace("'", "''");
+    }
+
+    private String normalizeJson(String s) {
+        if (s == null) return "";
+        String t = s.trim();
+        if (t.length() >= 2 && t.startsWith("\"") && t.endsWith("\"")) {
+            try {
+                return mapper.readValue(t, String.class);
+            } catch (Exception ignore) {
+            }
+        }
+        return t;
+    }
+
+    private String sanitizeOrderBy(String sortField, Map<String, String> typeMap, String fallback) {
+        if (sortField == null || sortField.isBlank()) return fallback;
+        String raw = sortField.contains("-") ? sortField.split("-")[0] : sortField;
+        return (typeMap != null && typeMap.containsKey(raw)) ? raw : fallback;
+    }
+
+    private String sanitizeDir(String dir) {
+        return "ASC".equalsIgnoreCase(dir) ? "ASC" : "DESC";
+    }
+
     public String buildSelectSQLForExport(String layer,
                                           List<String> columns,
                                           String sortField,
                                           String sortDirection,
                                           String filterModel,
-                                          Map<String,String> typeMap,
-                                          Map<String,String> rawTemporalKindMap) {
+                                          Map<String, String> typeMap,
+                                          Map<String, String> rawTemporalKindMap) {
 
         String table = resolveTableName(layer);
         if (columns == null || columns.isEmpty()) {
             throw new IllegalArgumentException("columns is required");
         }
-        // 컬럼들 안전 쿼트
+
         String selectCols = String.join(", ", columns.stream()
                 .map(c -> q(c.contains("-") ? c.split("-")[0] : c))
                 .toList());
@@ -45,12 +72,16 @@ public class QueryBuilder {
         String where = buildWhereClause(filterModel, typeMap, rawTemporalKindMap);
         if (!where.isEmpty()) sql.append(" WHERE ").append(where);
 
-        if (sortField != null && !sortField.isBlank()
-                && sortDirection != null && !sortDirection.isBlank()) {
-            String safeSort = sortField.contains("-") ? sortField.split("-")[0] : sortField;
-            sql.append(" ORDER BY ").append(q(safeSort)).append(" ").append(sortDirection);
+        // 정렬 처리 개선
+        if (sortField != null && !sortField.isBlank()) {
+            String safeSort = sanitizeOrderBy(sortField, typeMap, "ts_server_nsec");
+            String safeDir = sanitizeDir(sortDirection);
+
+            log.info("[QueryBuilder] Export 정렬: {} {}", safeSort, safeDir);
+            sql.append(" ORDER BY ").append(q(safeSort)).append(" ").append(safeDir);
         }
-        log.info("[QueryBuilder] ✅ Export SQL: {}", sql);
+
+        log.info("[QueryBuilder] Export SQL: {}", sql);
         return sql.toString();
     }
 
@@ -74,44 +105,22 @@ public class QueryBuilder {
         return q + "::date";
     }
 
-    /** ✅ 테이블명 매핑 */
+    /**
+     * 테이블명 매핑
+     */
     public String resolveTableName(String layer) {
         return resolveDataTable(layer);
     }
 
-    // 타입맵 + 원시시간타입맵 받기
-    public String buildSelectSQL(String layer, String sortField, String sortDirection,
-                                 String filterModel, int offset, int limit,
-                                 Map<String, String> typeMap,
-                                 Map<String, String> rawTemporalKindMap) {
-
-        String tableName = resolveTableName(layer);
-        StringBuilder sql = new StringBuilder("SELECT * FROM " + tableName);
-
-        String where = buildWhereClause(filterModel, typeMap, rawTemporalKindMap);
-        if (!where.isEmpty()) sql.append(" WHERE ").append(where);
-
-        if (sortField != null && !sortField.isBlank() && sortDirection != null && !sortDirection.isBlank()) {
-            String safeSortField = sortField.contains("-") ? sortField.split("-")[0] : sortField;
-            sql.append(" ORDER BY ").append("\"").append(safeSortField).append("\" ").append(sortDirection);
-        }
-
-        if (limit > 0) sql.append(" OFFSET ").append(offset).append(" LIMIT ").append(limit);
-        log.info("[QueryBuilder] ✅ SQL generated: {}", sql);
-        return sql.toString();
-    }
-
-    // =========================
     // WHERE
-    // =========================
     public String buildWhereClause(String filterModel,
-                                   Map<String,String> typeMap,
-                                   Map<String,String> rawTemporalKindMap) {
+                                   Map<String, String> typeMap,
+                                   Map<String, String> rawTemporalKindMap) {
         if (filterModel == null || filterModel.isEmpty()) return "";
         List<String> whereClauses = new ArrayList<>();
         try {
             JsonNode filters = mapper.readTree(filterModel);
-            for (Iterator<String> it = filters.fieldNames(); it.hasNext();) {
+            for (Iterator<String> it = filters.fieldNames(); it.hasNext(); ) {
                 String field = it.next();
                 JsonNode node = filters.get(field);
                 String mode = node.path("mode").asText("");
@@ -136,20 +145,66 @@ public class QueryBuilder {
 
                     for (int i = 0; i < conditions.size(); i++) {
                         JsonNode cond = conditions.get(i);
-                        String op  = cond.path("op").asText();
-                        String val = cond.path("val").asText();
-                        if (val == null || val.isBlank()) continue;
+                        String op = cond.path("op").asText("");
+                        String rawTemporalKind = rawTemporalKindMap.getOrDefault(safeField, "timestamp");
 
-                        String expr = buildConditionExpression(safeField, op, val, type,
-                                rawTemporalKindMap.getOrDefault(safeField, "timestamp"));
-                        if (expr != null) exprs.add(expr);
+                        String expr = null;
+
+                        // between 은 별도 처리 (val1/val2, min/max, from/to 지원)
+                        if ("between".equalsIgnoreCase(op)) {
+                            if ("date".equalsIgnoreCase(type)) {
+                                String v1 = cond.path("val1").asText(null);
+                                String v2 = cond.path("val2").asText(null);
+                                if (v1 == null || v2 == null) {
+                                    v1 = cond.path("from").asText(null);
+                                    v2 = cond.path("to").asText(null);
+                                }
+                                if (v1 != null && v2 != null) {
+                                    String kstDate = toKstDateExpr(safeField, rawTemporalKind);
+                                    expr = kstDate + " BETWEEN DATE '" + esc(v1) + "' AND DATE '" + esc(v2) + "'";
+                                }
+                            } else if ("number".equalsIgnoreCase(type)) {
+                                String a = cond.path("min").asText(null);
+                                String b = cond.path("max").asText(null);
+                                if (a == null || b == null) {
+                                    a = cond.path("val1").asText(null);
+                                    b = cond.path("val2").asText(null);
+                                }
+                                if (a != null && b != null) {
+                                    expr = q(safeField) + " BETWEEN " + a + " AND " + b;
+                                }
+                            } else {
+                                String a = cond.path("val1").asText(null);
+                                String b = cond.path("val2").asText(null);
+                                if (a != null && b != null) {
+                                    expr = q(safeField) + "::text BETWEEN '" + esc(a) + "' AND '" + esc(b) + "'";
+                                }
+                            }
+                        } else {
+                            // 단일 값 연산자 처리 (contains/equals/startsWith/endsWith, 비교연산 등)
+                            String val = cond.path("val").asText(null);
+                            if (val != null && !val.isBlank()) {
+                                expr = buildConditionExpression(safeField, op, val, type, rawTemporalKind);
+                            }
+                            // 필요 시 IS_NULL/IS_NOT_NULL 같은 무값 연산자 분기 추가 가능
+                        }
+
+                        if (expr != null && !expr.isBlank()) exprs.add(expr);
+
+                        // 다음 식의 조인 연산자는 마지막에 한꺼번에 적용 (아래에서)
                     }
+
                     if (!exprs.isEmpty()) {
-                        String whereExpr = exprs.get(0);
-                        for (int i = 1; i < exprs.size(); i++) {
-                            String logic = logicOps != null && logicOps.size() > i - 1
-                                    ? logicOps.get(i - 1).asText("AND") : "AND";
-                            whereExpr += " " + logic + " " + exprs.get(i);
+                        // 첫 항 뒤로 logicOps[i-1]를 끼워 넣음
+                        StringBuilder whereExpr = new StringBuilder();
+                        for (int i = 0; i < exprs.size(); i++) {
+                            if (i == 0) {
+                                whereExpr.append(exprs.get(i));
+                            } else {
+                                String logic = (logicOps != null && logicOps.size() > i - 1)
+                                        ? logicOps.get(i - 1).asText("AND") : "AND";
+                                whereExpr.append(" ").append(logic).append(" ").append(exprs.get(i));
+                            }
                         }
                         whereClauses.add("(" + whereExpr + ")");
                     }
@@ -161,17 +216,19 @@ public class QueryBuilder {
         return String.join(" AND ", whereClauses);
     }
 
-    /** ✅ 조건식 생성 (string/number/date/ip/mac/boolean/json) */
+    /**
+     * 조건식 생성 (string/number/date/ip/mac/boolean/json)
+     */
     private String buildConditionExpression(String field, String op, String val,
                                             String type, String rawTemporalKind) {
         String t = (type == null || type.isBlank()) ? "string" : type.toLowerCase();
 
         if (t.equals("ip") || t.equals("mac")) {
             return switch (op) {
-                case "equals"     -> "\"" + field + "\"::text = '" + val + "'";
+                case "equals" -> "\"" + field + "\"::text = '" + val + "'";
                 case "startsWith" -> "\"" + field + "\"::text ILIKE '" + val + "%'";
-                case "endsWith"   -> "\"" + field + "\"::text ILIKE '%" + val + "'";
-                case "contains"   -> "\"" + field + "\"::text ILIKE '%" + val + "%'";
+                case "endsWith" -> "\"" + field + "\"::text ILIKE '%" + val + "'";
+                case "contains" -> "\"" + field + "\"::text ILIKE '%" + val + "%'";
                 default -> null;
             };
         }
@@ -188,10 +245,10 @@ public class QueryBuilder {
         if (t.equals("date")) {
             String kstDate = toKstDateExpr(field, rawTemporalKind);
             return switch (op) {
-                case "equals"   -> kstDate + " = DATE '" + val + "'";
-                case "before"   -> kstDate + " < DATE '" + val + "'";
-                case "after"    -> kstDate + " > DATE '" + val + "'";
-                case "between"  -> {
+                case "equals" -> kstDate + " = DATE '" + val + "'";
+                case "before" -> kstDate + " < DATE '" + val + "'";
+                case "after" -> kstDate + " > DATE '" + val + "'";
+                case "between" -> {
                     String[] parts = val.split(",");
                     yield (parts.length == 2)
                             ? kstDate + " BETWEEN DATE '" + parts[0].trim() + "' AND DATE '" + parts[1].trim() + "'"
@@ -204,16 +261,16 @@ public class QueryBuilder {
 
         // string 기본
         return switch (op) {
-            case "contains"   -> "\"" + field + "\"::text ILIKE '%" + val + "%'";
-            case "equals"     -> "\"" + field + "\"::text = '" + val + "'";
+            case "contains" -> "\"" + field + "\"::text ILIKE '%" + val + "%'";
+            case "equals" -> "\"" + field + "\"::text = '" + val + "'";
             case "startsWith" -> "\"" + field + "\"::text ILIKE '" + val + "%'";
-            case "endsWith"   -> "\"" + field + "\"::text ILIKE '%" + val + "'";
+            case "endsWith" -> "\"" + field + "\"::text ILIKE '%" + val + "'";
             default -> null;
         };
     }
 
     // 타입 결정: 프론트 전달(type) > DB맵 > 기본 string
-    private String resolveTypeForField(String field, JsonNode node, Map<String,String> typeMap) {
+    private String resolveTypeForField(String field, JsonNode node, Map<String, String> typeMap) {
         String t = node.path("type").asText(null);
         if (t != null && !t.isBlank()) return t.toLowerCase();
         String safeField = field.contains("-") ? field.split("-")[0] : field;
@@ -221,82 +278,6 @@ public class QueryBuilder {
         if (fromMap != null && !fromMap.isBlank()) return fromMap.toLowerCase();
         return "string";
     }
-
-    // =========================
-    // DISTINCT
-    // =========================
-    public String buildDistinctPagedSQL(
-            String layer, String column, String filterModel, boolean includeSelf,
-            String search, int offset, int limit,
-            Map<String,String> typeMap, Map<String,String> rawTemporalKindMap) {
-
-        String table = resolveTableName(layer);
-        String where = includeSelf
-                ? buildWhereClause(filterModel, typeMap, rawTemporalKindMap)
-                : buildWhereClauseExcludingField(filterModel, column, typeMap, rawTemporalKindMap);
-
-        String colType = Optional.ofNullable(typeMap.get(column)).orElse("").toLowerCase();
-        String rawKind = Optional.ofNullable(rawTemporalKindMap.get(column)).orElse("timestamp");
-
-        String selectExpr = colType.equals("date")
-                ? toKstDateExpr(column, rawKind) + "::text"
-                : "\"" + column + "\"::text";
-        String notNullExpr = colType.equals("date")
-                ? toKstDateExpr(column, rawKind)
-                : "\"" + column + "\"";
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("WITH base AS (SELECT ").append(selectExpr).append(" AS v FROM ").append(table).append(" ");
-
-        // WHERE
-        if (where != null && !where.isBlank()) sb.append("WHERE ").append(where).append(" AND ");
-        else sb.append("WHERE ");
-        sb.append(notNullExpr).append(" IS NOT NULL ");
-
-        // 검색(prefix 권장)  ex) ILIKE 'term%'
-        if (search != null && !search.isBlank()) {
-            String esc = esc(search);
-            sb.append("AND ").append(selectExpr).append(" ILIKE '").append(esc).append("%' ");
-        }
-        sb.append(")\nSELECT DISTINCT v FROM base ORDER BY v ASC OFFSET ").append(Math.max(0, offset))
-                .append(" LIMIT ").append(Math.max(1, limit));
-        return sb.toString();
-    }
-
-    public String buildDistinctCountSQL(
-            String layer, String column, String filterModel, boolean includeSelf,
-            String search, Map<String,String> typeMap, Map<String,String> rawTemporalKindMap) {
-
-        String table = resolveTableName(layer);
-        String where = includeSelf
-                ? buildWhereClause(filterModel, typeMap, rawTemporalKindMap)
-                : buildWhereClauseExcludingField(filterModel, column, typeMap, rawTemporalKindMap);
-
-        String colType = Optional.ofNullable(typeMap.get(column)).orElse("").toLowerCase();
-        String rawKind = Optional.ofNullable(rawTemporalKindMap.get(column)).orElse("timestamp");
-
-        String selectExpr = colType.equals("date")
-                ? toKstDateExpr(column, rawKind) + "::text"
-                : "\"" + column + "\"::text";
-        String notNullExpr = colType.equals("date")
-                ? toKstDateExpr(column, rawKind)
-                : "\"" + column + "\"";
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("WITH base AS (SELECT ").append(selectExpr).append(" AS v FROM ").append(table).append(" ");
-
-        if (where != null && !where.isBlank()) sb.append("WHERE ").append(where).append(" AND ");
-        else sb.append("WHERE ");
-        sb.append(notNullExpr).append(" IS NOT NULL ");
-
-        if (search != null && !search.isBlank()) {
-            String esc = esc(search);
-            sb.append("AND ").append(selectExpr).append(" ILIKE '").append(esc).append("%' ");
-        }
-        sb.append(")\nSELECT COUNT(*) FROM (SELECT DISTINCT v FROM base) t");
-        return sb.toString();
-    }
-
 
     private String buildDateInClause(String field, ArrayNode values, String rawTemporalKind) {
         String kstDate = toKstDateExpr(field, rawTemporalKind);
@@ -312,8 +293,8 @@ public class QueryBuilder {
 
     private String buildWhereClauseExcludingField(String filterModel,
                                                   String excludeField,
-                                                  Map<String,String> typeMap,
-                                                  Map<String,String> rawTemporalKindMap) {
+                                                  Map<String, String> typeMap,
+                                                  Map<String, String> rawTemporalKindMap) {
         if (filterModel == null || filterModel.isEmpty()) return "";
 
         List<String> whereClauses = new ArrayList<>();
@@ -323,7 +304,7 @@ public class QueryBuilder {
             // exclude 비교를 위해 raw/SAFE 둘 다 대비
             String excludeSafe = excludeField.contains("-") ? excludeField.split("-")[0] : excludeField;
 
-            for (Iterator<String> it = filters.fieldNames(); it.hasNext();) {
+            for (Iterator<String> it = filters.fieldNames(); it.hasNext(); ) {
                 String field = it.next();
                 String safeField = field.contains("-") ? field.split("-")[0] : field;
 
@@ -341,19 +322,19 @@ public class QueryBuilder {
                     if (values != null && values.size() > 0) {
                         if ("date".equalsIgnoreCase(type)) {
                             String rawKind = Optional.ofNullable(rawTemporalKindMap.get(safeField)).orElse("timestamp");
-                            whereClauses.add(buildDateInClause(safeField, values, rawKind)); // ✅ KST DATE IN(...)
+                            whereClauses.add(buildDateInClause(safeField, values, rawKind)); // KST DATE IN(...)
                         } else {
                             whereClauses.add(buildInClauseWithType(safeField, values, type));
                         }
                     }
                 } else if ("condition".equals(mode)) {
                     ArrayNode conditions = (ArrayNode) node.get("conditions");
-                    ArrayNode logicOps   = (ArrayNode) node.get("logicOps");
-                    List<String> exprs   = new ArrayList<>();
+                    ArrayNode logicOps = (ArrayNode) node.get("logicOps");
+                    List<String> exprs = new ArrayList<>();
 
                     for (int i = 0; i < conditions.size(); i++) {
                         JsonNode cond = conditions.get(i);
-                        String op  = cond.path("op").asText();
+                        String op = cond.path("op").asText();
                         String val = cond.path("val").asText();
                         if (val == null || val.isBlank()) continue;
 
@@ -380,9 +361,7 @@ public class QueryBuilder {
         return String.join(" AND ", whereClauses);
     }
 
-    // =========================
     // IN 절 (타입 고려)
-    // =========================
     private String buildInClauseWithType(String field, ArrayNode values, String type) {
         String t = (type == null || type.isBlank()) ? "string" : type.toLowerCase();
         StringBuilder sb = new StringBuilder();
@@ -405,5 +384,243 @@ public class QueryBuilder {
         }
         sb.append(")");
         return sb.toString();
+    }
+
+    public String buildDistinctPagedSQLOrdered(
+            String layer, String column, String filterModel, boolean includeSelf,
+            String search, int offset, int limit,
+            String orderBy, String order, String baseSpecJson,
+            Map<String, String> typeMap, Map<String, String> rawTemporalKindMap) {
+
+        String table = resolveTableName(layer);
+
+        // 안전한 컬럼명/정렬 보정
+        String safeOrderBy = (orderBy != null && typeMap.containsKey(orderBy)) ? orderBy : "ts_server_nsec";
+        String safeOrder = "ASC".equalsIgnoreCase(order) ? "ASC" : "DESC";
+
+        // 1) 그리드와 동일 WHERE 만들기
+        //    - baseSpec(time/conditions)  +  activeFilters(filterModel)
+        String whereBase = buildWhereFromBaseSpec(baseSpecJson, typeMap, rawTemporalKindMap);
+        String whereFilter = includeSelf
+                ? buildWhereClause(filterModel, typeMap, rawTemporalKindMap)
+                : buildWhereClauseExcludingField(filterModel, column, typeMap, rawTemporalKindMap);
+
+        String where = Stream.of(whereBase, whereFilter)
+                .filter(s -> s != null && !s.isBlank())
+                .collect(java.util.stream.Collectors.joining(" AND "));
+
+        // 2) 표시값/NULL제외/검색(prefix) 처리
+        String colType = Optional.ofNullable(typeMap.get(column)).orElse("").toLowerCase();
+        String rawKind = Optional.ofNullable(rawTemporalKindMap.get(column)).orElse("timestamp");
+
+        String selectExpr = colType.equals("date")
+                ? toKstDateExpr(column, rawKind) + "::text"
+                : "\"" + column + "\"::text";
+        String notNullExpr = colType.equals("date")
+                ? toKstDateExpr(column, rawKind)
+                : "\"" + column + "\"";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("WITH base AS (")
+                .append(" SELECT ").append(selectExpr).append(" AS v, ")
+                .append("t.").append(q(safeOrderBy)).append(" AS ord")
+                .append(" FROM ").append(table).append(" t ");
+
+        if (where != null && !where.isBlank()) sb.append(" WHERE ").append(where).append(" AND ");
+        else sb.append(" WHERE ");
+        sb.append(notNullExpr).append(" IS NOT NULL ");
+
+        if (search != null && !search.isBlank()) {
+            sb.append(" AND ").append(selectExpr)
+                    .append(" ILIKE '").append(esc(search)).append("%' ");
+        }
+        sb.append(")")
+                .append(", dedup AS (")
+                .append(" SELECT v, MIN(ord) AS first_ord")
+                .append(" FROM base GROUP BY v")
+                .append(")")
+                .append(" SELECT v FROM dedup")
+                .append(" ORDER BY first_ord ").append(safeOrder)
+                .append(" OFFSET ").append(Math.max(0, offset))
+                .append(" LIMIT ").append(Math.max(1, limit));
+
+        log.info("[Distinct WHERE] base={}, filters={}", whereBase, whereFilter);
+
+        return sb.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    public String buildWhereFromBaseSpec(
+            String baseSpecJson,
+            Map<String, String> typeMap,
+            Map<String, String> rawTemporalKindMap
+    ) {
+        if (baseSpecJson == null || baseSpecJson.isBlank()) return "";
+        try {
+            // 이중 stringify 대비
+            String norm = normalizeJson(baseSpecJson);
+            JsonNode root = mapper.readTree(norm);
+            List<String> parts = new ArrayList<>();
+
+            // 1) time: { field, fromEpoch, toEpoch, inclusive? }
+            JsonNode time = root.path("time");
+            if (time.isObject()) {
+                String field = time.path("field").asText(null);
+                Long from = time.hasNonNull("fromEpoch") ? time.get("fromEpoch").asLong() : null;
+                Long to = time.hasNonNull("toEpoch") ? time.get("toEpoch").asLong() : null;
+                if (field != null && from != null && to != null) {
+                    parts.add(buildTimeRangeClause(field, from, to, typeMap, rawTemporalKindMap));
+                }
+            }
+
+            // 2) conditions: [{join, field, op, values, dataType}]
+            JsonNode conds = root.path("conditions");
+            if (conds.isArray() && conds.size() > 0) {
+                List<String> cParts = new ArrayList<>();
+                for (int i = 0; i < conds.size(); i++) {
+                    JsonNode c = conds.get(i);
+                    String field = c.path("field").asText(null);
+                    String op = c.path("op").asText(null);
+                    String dt = c.path("dataType").asText(null);
+                    if (field == null || op == null) continue;
+
+                    String dataType = (dt == null || dt.isBlank())
+                            ? Optional.ofNullable(typeMap.get(field)).orElse("TEXT").toUpperCase()
+                            : dt.toUpperCase();
+
+                    List<String> vals = new ArrayList<>();
+                    JsonNode vArr = c.path("values");
+                    if (vArr.isArray()) for (JsonNode v : vArr) vals.add(v.isNull() ? null : v.asText());
+
+                    String expr = mapSearchDTOCondition(field, op.toUpperCase(), dataType, vals, rawTemporalKindMap);
+                    if (expr == null || expr.isBlank()) continue;
+
+                    String join = (i == 0) ? null : c.path("join").asText("AND").toUpperCase();
+                    if (join != null) cParts.add(join);
+                    cParts.add("(" + expr + ")");
+                }
+                if (!cParts.isEmpty()) parts.add(String.join(" ", cParts));
+            }
+
+            return String.join(" AND ", parts);
+        } catch (Exception e) {
+            log.warn("[QueryBuilder] buildWhereFromBaseSpec parse error: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    public String buildTimeRangeClause(
+            String field,
+            long fromEpoch,
+            long toEpoch,
+            Map<String, String> typeMap,
+            Map<String, String> rawTemporalKindMap
+    ) {
+        if (field == null) return "";
+        String fType = typeMap != null ? typeMap.getOrDefault(field, "") : "";
+        String raw = rawTemporalKindMap != null ? rawTemporalKindMap.getOrDefault(field, "") : "";
+
+        String col = "t." + q(field);
+
+        // 숫자형(예: ts_server_nsec): 초/나노초 모두 허용 (그리드와 단위 불일치 안전)
+        if ("number".equalsIgnoreCase(fType)) {
+            long fromNs = Math.multiplyExact(fromEpoch, 1_000_000_000L);
+            long toNs = Math.multiplyExact(toEpoch, 1_000_000_000L);
+            // 초 단위 저장 컬럼 대비도 허용
+            return "(" + col + " BETWEEN " + fromNs + " AND " + toNs + " OR " +
+                    col + " BETWEEN " + fromEpoch + " AND " + toEpoch + ")";
+        }
+
+        if ("timestamptz".equalsIgnoreCase(raw)) {
+            return col + " BETWEEN to_timestamp(" + fromEpoch + ") AND to_timestamp(" + toEpoch + ")";
+        }
+        if ("timestamp".equalsIgnoreCase(raw)) {
+            return "(" + col + " AT TIME ZONE 'UTC') BETWEEN to_timestamp(" + fromEpoch + ") AND to_timestamp(" + toEpoch + ")";
+        }
+        if ("date".equalsIgnoreCase(fType)) {
+            return col + " BETWEEN to_timestamp(" + fromEpoch + ")::date AND to_timestamp(" + toEpoch + ")::date";
+        }
+        return "";
+    }
+
+    private String mapSearchDTOCondition(String field, String op, String dataType,
+                                         List<String> values, Map<String, String> rawTemporalKindMap) {
+        String f = "\"" + field + "\"";
+        switch (dataType) {
+            case "TEXT":
+            case "IP":
+            case "MAC": {
+                String val = values.isEmpty() ? "" : esc(values.get(0));
+                return switch (op) {
+                    case "LIKE" -> f + "::text ILIKE '%" + val + "%'";
+                    case "STARTS_WITH" -> f + "::text ILIKE '" + val + "%'";
+                    case "ENDS_WITH" -> f + "::text ILIKE '%" + val + "'";
+                    case "EQ" -> f + " = '" + val + "'";
+                    case "NE" -> f + " <> '" + val + "'";
+                    case "IN" -> inListText(f, values);
+                    case "IS_NULL" -> f + " IS NULL";
+                    case "IS_NOT_NULL" -> f + " IS NOT NULL";
+                    default -> null;
+                };
+            }
+            case "NUMBER": {
+                String v1 = values.isEmpty() ? null : values.get(0);
+                String v2 = values.size() > 1 ? values.get(1) : null;
+                return switch (op) {
+                    case "EQ" -> f + " = " + v1;
+                    case "NE" -> f + " <> " + v1;
+                    case "GT" -> f + " > " + v1;
+                    case "GTE" -> f + " >= " + v1;
+                    case "LT" -> f + " < " + v1;
+                    case "LTE" -> f + " <= " + v1;
+                    case "BETWEEN" -> f + " BETWEEN " + v1 + " AND " + v2;
+                    case "IN" -> inListNumber(f, values);
+                    case "IS_NULL" -> f + " IS NULL";
+                    case "IS_NOT_NULL" -> f + " IS NOT NULL";
+                    default -> null;
+                };
+            }
+            case "DATETIME": {
+                String kind = rawTemporalKindMap.getOrDefault(field, "timestamp");
+                String cast = "to_timestamp";
+                String t1 = values.isEmpty() ? null : cast + "(" + values.get(0) + ")";
+                String t2 = values.size() > 1 ? cast + "(" + values.get(1) + ")" : null;
+                return switch (op) {
+                    case "GTE" -> f + " >= " + t1;
+                    case "LT" -> f + " < " + t1;
+                    case "BETWEEN" -> f + " BETWEEN " + t1 + " AND " + t2;
+                    case "IN" ->
+                            f + " IN (" + values.stream().map(v -> cast + "(" + v + ")").collect(java.util.stream.Collectors.joining(", ")) + ")";
+                    case "IS_NULL" -> f + " IS NULL";
+                    case "IS_NOT_NULL" -> f + " IS NOT NULL";
+                    default -> null;
+                };
+            }
+            case "BOOLEAN": {
+                return switch (op) {
+                    case "IS_NULL" -> f + " IS NULL";
+                    case "IS_NOT_NULL" -> f + " IS NOT NULL";
+                    case "EQ" -> f + " = " + (values.isEmpty() ? "false" : values.get(0));
+                    default -> null;
+                };
+            }
+            default:
+                return null;
+        }
+    }
+
+    private String inListText(String f, List<String> values) {
+        String joined = values.stream()
+                .filter(Objects::nonNull)
+                .map(v -> "'" + esc(v) + "'")
+                .collect(java.util.stream.Collectors.joining(", "));
+        return f + " IN (" + (joined.isBlank() ? "''" : joined) + ")";
+    }
+
+    private String inListNumber(String f, List<String> values) {
+        String joined = values.stream()
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.joining(", "));
+        return f + " IN (" + (joined.isBlank() ? "0" : joined) + ")";
     }
 }

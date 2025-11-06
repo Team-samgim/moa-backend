@@ -51,6 +51,7 @@ public class SearchDTO {
         private String orderBy;  // 정렬 컬럼
         private String order;    // ASC | DESC
         private Integer limit;   // 기본 100 (1~1000 가드)
+        private Integer offset;
     }
 
     // 응답용 필드들

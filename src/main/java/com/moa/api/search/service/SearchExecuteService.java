@@ -88,6 +88,8 @@ public class SearchExecuteService {
         String order = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOrder).orElse("DESC");
         int limit = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getLimit).orElse(100);
         limit = Math.max(1, Math.min(1000, limit));
+        int offset = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOffset).orElse(0);
+        offset = Math.max(0, offset);
 
         orderBy = safeColumn(orderBy, fieldTypeMap); // 화이트리스트
         order = "ASC".equalsIgnoreCase(order) ? "ASC" : "DESC";
@@ -103,16 +105,23 @@ public class SearchExecuteService {
             selectClause = "SELECT *";
         }
 
+        String orderExpr = switch (fieldTypeMap.getOrDefault(orderBy, "TEXT").toUpperCase()) {
+            case "NUMBER" -> "t." + orderBy + "::numeric";
+            case "DATETIME" -> "t." + orderBy; // timestamp 계열은 그대로
+            default -> "t." + orderBy + "::text"; // 문자열 계열은 명시적 캐스팅
+        };
+
         String sql = selectClause + " FROM " + table + " t " +
                 where +
-                " ORDER BY t." + orderBy + " " + order +
-                " LIMIT :limit";
+                " ORDER BY " + orderExpr + " " + order +
+                " LIMIT :limit OFFSET :offset";
 
         System.out.println("📝 [SearchExecuteService] 생성된 SQL:");
         System.out.println(sql);
         System.out.println("  - 파라미터: " + params.getValues());
 
         params.addValue("limit", limit);
+        params.addValue("offset", offset);
 
         List<Map<String, Object>> rows = jdbc.queryForList(sql, params);
 
