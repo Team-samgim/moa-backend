@@ -1,8 +1,8 @@
 package com.moa.api.auth.service;
 
-import com.moa.api.auth.dto.LoginRequest;
-import com.moa.api.auth.dto.SignupRequest;
-import com.moa.api.auth.dto.TokenResponse;
+import com.moa.api.auth.dto.LoginRequestDTO;
+import com.moa.api.auth.dto.SignupRequestDTO;
+import com.moa.api.auth.dto.TokenResponseDTO;
 import com.moa.api.member.entity.Member;
 import com.moa.api.member.entity.Role;
 import com.moa.api.member.repository.MemberRepository;
@@ -21,7 +21,7 @@ public class AuthService {
     private final TokenProvider tokenProvider;
 
     @Transactional
-    public void signup(SignupRequest req) {
+    public void signup(SignupRequestDTO req) {
         if (memberRepo.existsByLoginId(req.loginId()))
             throw new IllegalArgumentException("이미 사용중인 로그인 아이디입니다.");
         if (memberRepo.existsByEmail(req.email()))
@@ -38,7 +38,7 @@ public class AuthService {
     }
 
     @Transactional(readOnly = true)
-    public TokenResponse login(LoginRequest req) {
+    public TokenResponseDTO login(LoginRequestDTO req) {
         Member m = memberRepo.findByLoginId(req.loginId())
                 .orElseThrow(() -> new IllegalArgumentException("로그인 아이디 또는 비밀번호가 올바르지 않습니다."));
         if (!encoder.matches(req.password(), m.getPassword()))
@@ -46,11 +46,11 @@ public class AuthService {
 
         String access = tokenProvider.createAccessToken(m.getId(), m.getLoginId(), m.getRole());
         String refresh = tokenProvider.createRefreshToken(m.getLoginId(), m.getRole());
-        return new TokenResponse(access, refresh);
+        return new TokenResponseDTO(access, refresh);
     }
 
     @Transactional(readOnly = true)
-    public TokenResponse reissue(String refreshToken) {
+    public TokenResponseDTO reissue(String refreshToken) {
         var jws = tokenProvider.parse(refreshToken);
         var claims = jws.getBody();
 
@@ -75,7 +75,7 @@ public class AuthService {
                 .orElseThrow(() -> new IllegalArgumentException("회원이 존재하지 않습니다."));
 
         String newAccess = tokenProvider.createAccessToken(m.getId(), m.getLoginId(), m.getRole());
-        return new TokenResponse(newAccess, refreshToken);
+        return new TokenResponseDTO(newAccess, refreshToken);
     }
 
     public boolean existsLoginId(String loginId) {
