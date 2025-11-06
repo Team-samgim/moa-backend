@@ -132,7 +132,6 @@ public class PivotRepositoryImpl implements PivotRepository {
             %s
             GROUP BY %s
             ORDER BY cnt DESC, %s ASC
-            LIMIT 10
         """.formatted(col, table, where, col, col);
 
         return jdbc.query(text, ps, (rs, i) -> rs.getString("col_val"));
@@ -345,6 +344,7 @@ public class PivotRepositoryImpl implements PivotRepository {
         return groups;
     }
 
+
     @Override
     public List<PivotQueryResponseDTO.RowGroupItem> buildRowGroupItems(
             String layer,
@@ -355,14 +355,14 @@ public class PivotRepositoryImpl implements PivotRepository {
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw,
             int offset,
-            int limit
+            int limit,
+            PivotQueryRequestDTO.SortDef sort
     ) {
         boolean hasColumn = columnField != null && !columnField.isBlank()
                 && columnValues != null && !columnValues.isEmpty();
         boolean hasMetrics = values != null && !values.isEmpty();
 
-        List<String> rowVals = fetchDistinctRowValues(layer, rowField, filters, tw, offset, limit);
-
+        // 🔹 공통: breakdown( row → column → metric ) 은 한 번 계산
         Map<String, Map<String, Map<String, Object>>> breakdown = new LinkedHashMap<>();
 
         if (hasColumn && hasMetrics) {
@@ -370,8 +370,124 @@ public class PivotRepositoryImpl implements PivotRepository {
                     fetchBreakdownByRowAndColumn(layer, rowField, columnField, values, filters, tw);
         }
 
+        final Map<String, Map<String, Map<String, Object>>> breakdownFinal = breakdown;
+
+        boolean hasSort =
+                sort != null &&
+                        sort.getDirection() != null &&
+                        sort.getValueField() != null &&
+                        sort.getAgg() != null &&
+                        sort.getColumnValue() != null &&
+                        hasColumn &&
+                        hasMetrics;
+
+        if (!hasSort) {
+            List<String> rowVals =
+                    fetchDistinctRowValues(layer, rowField, filters, tw, offset, limit);
+
+            List<PivotQueryResponseDTO.RowGroupItem> items = new ArrayList<>();
+            for (String rv : rowVals) {
+                Map<String, Map<String, Object>> childCells = new LinkedHashMap<>();
+
+                if (hasColumn && hasMetrics) {
+                    Map<String, Map<String, Object>> byCol = breakdown.getOrDefault(rv, Map.of());
+                    for (String cv : columnValues) {
+                        childCells.put(cv, byCol.getOrDefault(cv, Map.of()));
+                    }
+                }
+
+                items.add(
+                        PivotQueryResponseDTO.RowGroupItem.builder()
+                                .valueLabel(rv)
+                                .displayLabel(rv)
+                                .cells(childCells)
+                                .build()
+                );
+            }
+
+            return items;
+        }
+
+        List<String> allRowVals = fetchDistinctRowValues(layer, rowField, filters, tw);
+
+        String sortAlias = null;
+        if (values != null) {
+            for (PivotQueryRequestDTO.ValueDef v : values) {
+                if (sort.getValueField().equals(v.getField())
+                        && sort.getAgg().equalsIgnoreCase(v.getAgg())) {
+                    sortAlias = v.getAlias();
+                    break;
+                }
+            }
+        }
+
+        final String sortAliasFinal = sortAlias;
+        final String sortColumnValue = sort.getColumnValue();
+        final String direction = sort.getDirection();
+
+        if (sortAliasFinal == null) {
+            return buildRowGroupItems(
+                    layer,
+                    rowField,
+                    values,
+                    columnField,
+                    columnValues,
+                    filters,
+                    tw,
+                    offset,
+                    limit,
+                    null    // 재귀: sort 없는 버전으로
+            );
+        }
+
+        // 2-3) 정렬
+        allRowVals.sort((rv1, rv2) -> {
+            Map<String, Map<String, Object>> byCol1 =
+                    breakdownFinal.getOrDefault(rv1, Collections.emptyMap());
+            Map<String, Map<String, Object>> byCol2 =
+                    breakdownFinal.getOrDefault(rv2, Collections.emptyMap());
+
+            Map<String, Object> metrics1 =
+                    byCol1.getOrDefault(sortColumnValue, Collections.emptyMap());
+            Map<String, Object> metrics2 =
+                    byCol2.getOrDefault(sortColumnValue, Collections.emptyMap());
+
+            Object o1 = metrics1.get(sortAliasFinal);
+            Object o2 = metrics2.get(sortAliasFinal);
+
+            double d1 = (o1 instanceof Number) ? ((Number) o1).doubleValue() : Double.NaN;
+            double d2 = (o2 instanceof Number) ? ((Number) o2).doubleValue() : Double.NaN;
+
+            // NaN (값 없음)은 항상 뒤로 보내기
+            if (Double.isNaN(d1) && Double.isNaN(d2)) return 0;
+            if (Double.isNaN(d1)) return 1;
+            if (Double.isNaN(d2)) return -1;
+
+            int cmp = Double.compare(d1, d2);
+            if ("desc".equalsIgnoreCase(direction)) {
+                cmp = -cmp;
+            }
+
+            if (cmp != 0) return cmp;
+
+            // tie-breaker: row 값 알파벳 순
+            if (rv1 == null && rv2 == null) return 0;
+            if (rv1 == null) return 1;
+            if (rv2 == null) return -1;
+            return rv1.compareTo(rv2);
+        });
+
+        int fromIdx = Math.max(0, offset);
+        int toIdx = Math.min(allRowVals.size(), offset + limit);
+        if (fromIdx >= toIdx) {
+            return List.of();
+        }
+
+        List<String> pageRowVals = allRowVals.subList(fromIdx, toIdx);
+
+        // 2-5) pageRowVals 기준으로 RowGroupItem 빌드
         List<PivotQueryResponseDTO.RowGroupItem> items = new ArrayList<>();
-        for (String rv : rowVals) {
+        for (String rv : pageRowVals) {
             Map<String, Map<String, Object>> childCells = new LinkedHashMap<>();
 
             if (hasColumn && hasMetrics) {
@@ -392,4 +508,5 @@ public class PivotRepositoryImpl implements PivotRepository {
 
         return items;
     }
+
 }

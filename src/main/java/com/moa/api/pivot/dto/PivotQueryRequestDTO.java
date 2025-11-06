@@ -24,6 +24,7 @@ public class PivotQueryRequestDTO {
     private List<FilterDef> filters;
 
     private TimeDef time;
+    private SortDef sort;
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     @NoArgsConstructor
@@ -87,9 +88,10 @@ public class PivotQueryRequestDTO {
     @NoArgsConstructor
     @Data
     public static class SortDef {
-        private String mode;       // "value" (나중에 "row", "column"으로 확장 가능)
-        private String valueField; // ValueDef.field (ex: "page_http_len_res")
-        private String agg;        // ValueDef.agg   (ex: "sum")
-        private String direction;  // "asc" | "desc"
+        private String mode;        // "value" 정도로 시작
+        private String columnValue; // 어떤 columnField.values 값인지 (예: "South Korea")
+        private String valueField;  // ValueDef.field (ex: "page_http_len_res")
+        private String agg;         // ValueDef.agg   (ex: "sum")
+        private String direction;   // "asc" | "desc"
     }
 }

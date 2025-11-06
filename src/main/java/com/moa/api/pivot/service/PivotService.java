@@ -141,45 +141,6 @@ public class PivotService {
 
     /* ===== 3) 특정 row group의 subRows + breakdown 조회 ===== */
     public RowGroupItemsResponseDTO getRowGroupItems(RowGroupItemsRequestDTO req) {
-
-//        TimeWindow tw = resolveTimeWindow(req.getTime());
-//
-//        String layer = req.getLayer();
-//        String rowField = req.getRowField();
-//
-//        String columnFieldName = (req.getColumn() != null)
-//                ? req.getColumn().getField()
-//                : null;
-//
-//        List<String> columnValues = List.of();
-//        if (columnFieldName != null && !columnFieldName.isBlank()) {
-//            columnValues = pivotRepository.findTopColumnValues(
-//                    layer,
-//                    columnFieldName,
-//                    req.getFilters(),
-//                    tw
-//            );
-//        }
-//
-//        List<PivotQueryResponseDTO.RowGroupItem> items =
-//                pivotRepository.buildRowGroupItems(
-//                        layer,
-//                        rowField,
-//                        req.getValues(),
-//                        columnFieldName,
-//                        columnValues,
-//                        req.getFilters(),
-//                        tw
-//                );
-//
-//        String rowLabel = rowField + " (" + items.size() + ")";
-//
-//        return RowGroupItemsResponseDTO.builder()
-//                .rowField(rowField)
-//                .rowLabel(rowLabel)
-//                .items(items)
-//                .build();
-
         TimeWindow tw = resolveTimeWindow(req.getTime());
 
         String layer = req.getLayer();
@@ -218,7 +179,8 @@ public class PivotService {
                         req.getFilters(),
                         tw,
                         offset,
-                        limit + 1
+                        limit + 1,
+                        req.getSort()
                 );
 
         // hasMore 판단 및 초과분 제거

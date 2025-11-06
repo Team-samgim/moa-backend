@@ -39,6 +39,7 @@ public interface PivotRepository {
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw,
             int offset,
-            int limit
+            int limit,
+            PivotQueryRequestDTO.SortDef sort
     );
 }
