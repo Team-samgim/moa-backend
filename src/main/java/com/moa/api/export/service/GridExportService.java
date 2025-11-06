@@ -27,7 +27,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.BufferedWriter;
+import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,7 +47,6 @@ public class GridExportService {
     private final GridRepositoryImpl gridRepository;
     private final ExportFileRepository exportFileRepository;
     private final S3Uploader s3Uploader;
-    private final PresetRepository presetRepository;
     private final S3Props s3Props;
     private final EntityManager em;
 
@@ -55,12 +56,12 @@ public class GridExportService {
         final String prefix = normalizePrefix(s3Props.getS3().getPrefix());
 
         // 1) 인증 컨텍스트에서 memberId 보장
-        Long memberId = resolveMemberId();                  // ★ req 값 무시
+        Long memberId = resolveMemberId();                  // req 값 무시
         Member memberRef = em.getReference(Member.class, memberId);
 
         // 2) 프리셋 확보 (없으면 생성)
         Preset presetRef = (req.getPresetId() == null)
-                ? createPresetFromRequest(req, memberRef)              // ✅ 새 프리셋 생성(EXPORT)
+                ? createPresetFromRequest(req, memberRef)              // 새 프리셋 생성(EXPORT)
                 : em.getReference(Preset.class, req.getPresetId());
 
         // 3) 파일명 & objectKey
@@ -76,7 +77,10 @@ public class GridExportService {
             writeCsvToFile(tmp, req);
             s3Uploader.upload(bucket, objectKey, tmp, "text/csv; charset=utf-8");
         } finally {
-            try { Files.deleteIfExists(tmp); } catch (Exception ignore) {}
+            try {
+                Files.deleteIfExists(tmp);
+            } catch (Exception ignore) {
+            }
         }
 
         // 5) 프리사인드 URL
@@ -120,12 +124,14 @@ public class GridExportService {
 
         Map<String, Object> sort = new LinkedHashMap<>();
         if (req.getSortField() != null && !req.getSortField().isBlank()) sort.put("field", req.getSortField());
-        if (req.getSortDirection() != null && !req.getSortDirection().isBlank()) sort.put("direction", req.getSortDirection());
+        if (req.getSortDirection() != null && !req.getSortDirection().isBlank())
+            sort.put("direction", req.getSortDirection());
 
         Map<String, Object> cfg = new LinkedHashMap<>();
         cfg.put("layer", req.getLayer());
         cfg.put("columns", req.getColumns());
         cfg.put("filters", safeJsonNode(req.getFilterModelJson())); // JSON 문자열이면 파싱, 아니면 빈 Map
+        cfg.put("baseSpec", safeJsonNode(req.getBaseSpecJson()));
         cfg.put("sort", sort);
         cfg.put("version", 1);
 
@@ -142,10 +148,11 @@ public class GridExportService {
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        return presetRepository.save(preset);
+        em.persist(preset);   // 영속화
+        em.flush();           // ID 즉시 채움(ExportFile FK에 사용)
+        return preset;
     }
 
-    // ★ 시큐리티는 팀 영역이므로 여기서만 memberId 확정
     private Long resolveMemberId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated())
@@ -167,7 +174,7 @@ public class GridExportService {
     private String sanitizeFileBase(String s) {
         String cleaned = s;
         cleaned = cleaned.replace('\\', ' ');
-        cleaned = cleaned.replace('/',  ' ');
+        cleaned = cleaned.replace('/', ' ');
         cleaned = cleaned.replace('\r', ' ');
         cleaned = cleaned.replace('\n', ' ');
         cleaned = cleaned.replace('\t', ' ');
@@ -185,48 +192,60 @@ public class GridExportService {
     }
 
     private void writeCsvToFile(Path path, ExportGridRequest req) throws Exception {
-        List<String> cols = req.getColumns();
-        if (cols == null || cols.isEmpty()) throw new IllegalArgumentException("columns is required");
+        List<String> cols = Optional.ofNullable(req.getColumns()).orElseThrow(() -> new IllegalArgumentException("columns is required"));
+        final String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "ethernet" : req.getLayer();
 
+        Map<String, String> typeMap = gridRepository.getFrontendTypeMap(layer);
+        Map<String, String> temporalMap = gridRepository.getTemporalKindMap(layer);
+
+        // ✅ 실존 컬럼만 선택(에러 예방)
+        List<String> safeCols = cols.stream().filter(c -> typeMap.containsKey(strip(c))).toList();
+        if (safeCols.isEmpty()) throw new IllegalArgumentException("no valid columns to export");
+
+        String sql = queryBuilder.buildSelectSQLForExport(
+                layer,
+                safeCols,                                 // ✅ safe columns
+                req.getSortField(),
+                req.getSortDirection(),
+                req.getFilterModelJson(),
+                req.getBaseSpecJson(),                    // ✅ baseSpec 추가
+                typeMap,
+                temporalMap
+        );
+
+        int fetch = Optional.ofNullable(req.getFetchSize()).orElse(5000);
         try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
                 Files.newOutputStream(path), StandardCharsets.UTF_8));
-             CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.withHeader(cols.toArray(new String[0])))) {
-
-            final String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "ethernet" : req.getLayer();
-
-            Map<String, String> typeMap = gridRepository.getFrontendTypeMap(layer);
-            Map<String, String> temporalMap = gridRepository.getTemporalKindMap(layer);
-
-            String sql = queryBuilder.buildSelectSQLForExport(
-                    layer, cols, req.getSortField(), req.getSortDirection(),
-                    req.getFilterModelJson(), typeMap, temporalMap
-            );
+             CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.withHeader(safeCols.toArray(new String[0])))) {
 
             RowCallbackHandler rch = rs -> {
-                try {
-                    List<Object> out = new ArrayList<>(cols.size());
-                    for (String c : cols) {
-                        Object v = rs.getObject(c);
-                        if (v instanceof org.postgresql.util.PGobject pg) {
-                            out.add(Optional.ofNullable(pg.getValue()).orElse(""));
-                        } else {
-                            out.add(Objects.toString(v, ""));
-                        }
+                List<Object> out = new ArrayList<>(safeCols.size());
+                for (String c : safeCols) {
+                    Object v = rs.getObject(strip(c)); // 컬럼명 strip 주의
+                    if (v instanceof org.postgresql.util.PGobject pg) {
+                        out.add(Objects.toString(pg.getValue(), ""));
+                    } else {
+                        out.add(Objects.toString(v, ""));
                     }
-                    printer.printRecord(out);
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
+                }
+                try {
+                    printer.printRecord(out); // <-- IOException 발생 지점
+                } catch (IOException e) {
+                    // RowCallbackHandler는 IOException을 던질 수 없으므로 래핑
+                    throw new UncheckedIOException(e);
                 }
             };
 
             jdbcTemplate.query(con -> {
                 con.setAutoCommit(false);
-                var ps = con.prepareStatement(sql,
-                        java.sql.ResultSet.TYPE_FORWARD_ONLY,
-                        java.sql.ResultSet.CONCUR_READ_ONLY);
-                ps.setFetchSize(5000);
+                var ps = con.prepareStatement(sql, java.sql.ResultSet.TYPE_FORWARD_ONLY, java.sql.ResultSet.CONCUR_READ_ONLY);
+                ps.setFetchSize(fetch);
                 return ps;
             }, rch);
         }
+    }
+
+    private String strip(String c) {
+        return c.contains("-") ? c.substring(0, c.indexOf('-')) : c;
     }
 }

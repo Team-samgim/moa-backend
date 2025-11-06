@@ -11,6 +11,7 @@ import java.util.Map;
 public class AggregateRequestDTO {
     private String layer;                   // ex) "ethernet"
     private String filterModel;             // 프론트에서 보내던 JSON 문자열 그대로
+    private String baseSpecJson;
     private Map<String, MetricSpec> metrics; // { field: { type, ops[] } }
 
     @Getter @Setter

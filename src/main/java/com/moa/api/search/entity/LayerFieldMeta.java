@@ -1,16 +1,15 @@
 package com.moa.api.search.entity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
+import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Getter
 @Entity
-@Table(name = "layer_fields") // 기본값 (실제로는 동적으로 변경됨)
-@NoArgsConstructor(access = lombok.AccessLevel.PROTECTED)
+@Table(name = "layer_fields")
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class LayerFieldMeta {
 
     @Id
@@ -26,8 +25,22 @@ public class LayerFieldMeta {
     @Column(name = "is_info")
     private Boolean isInfo;
 
-    public LayerFieldMeta(String fieldKey, String dataType) {
+    // 정적 팩토리 메서드 추가
+    public static LayerFieldMeta of(String fieldKey, String dataType, String labelKo, Boolean isInfo) {
+        LayerFieldMeta entity = new LayerFieldMeta();
+        entity.fieldKey = fieldKey;
+        entity.dataType = dataType;
+        entity.labelKo = labelKo;
+        entity.isInfo = isInfo;
+        return entity;
+    }
+
+    // 또는 Builder 패턴 사용
+    @Builder
+    private LayerFieldMeta(String fieldKey, String dataType, String labelKo, Boolean isInfo) {
         this.fieldKey = fieldKey;
         this.dataType = dataType;
+        this.labelKo = labelKo;
+        this.isInfo = isInfo;
     }
 }

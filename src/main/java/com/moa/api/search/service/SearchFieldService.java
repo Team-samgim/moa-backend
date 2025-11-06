@@ -2,9 +2,10 @@ package com.moa.api.search.service;
 
 import com.moa.api.search.dto.FieldWithOpsDTO;
 import com.moa.api.search.dto.OperatorDTO;
+import com.moa.api.search.entity.LayerFieldMeta;
 import com.moa.api.search.registry.DataType;
 import com.moa.api.search.registry.OpCode;
-import jakarta.persistence.EntityManager;
+import com.moa.api.search.repository.LayerFieldMetaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,56 +20,55 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class SearchFieldService {
 
-    private final EntityManager entityManager;
+    private final LayerFieldMetaRepository repository;
 
-    // 타입별 연산자 정의
+    // 타입별 연산자 정의 (기존과 동일)
     private static final Map<DataType, List<OperatorDTO>> OPS = Map.of(
             DataType.TEXT, List.of(
-                    new OperatorDTO(OpCode.LIKE.name(), "포함", 1, true,  10),
-                    new OperatorDTO(OpCode.EQ.name(),   "=",    1, false, 20),
-                    new OperatorDTO(OpCode.NE.name(),   "!=",   1, false, 30),
-                    new OperatorDTO(OpCode.STARTS_WITH.name(),"시작", 1,false,40),
-                    new OperatorDTO(OpCode.ENDS_WITH.name(),  "끝남", 1,false,50),
-                    new OperatorDTO(OpCode.IN.name(),   "목록", -1,false,60),
-                    new OperatorDTO(OpCode.IS_NULL.name(),    "값 없음",0,false,70),
-                    new OperatorDTO(OpCode.IS_NOT_NULL.name(),"값 있음",0,false,80)
+                    new OperatorDTO(OpCode.LIKE.name(), "포함", 1, true, 10),
+                    new OperatorDTO(OpCode.EQ.name(), "=", 1, false, 20),
+                    new OperatorDTO(OpCode.NE.name(), "!=", 1, false, 30),
+                    new OperatorDTO(OpCode.STARTS_WITH.name(), "시작", 1, false, 40),
+                    new OperatorDTO(OpCode.ENDS_WITH.name(), "끝남", 1, false, 50),
+                    new OperatorDTO(OpCode.IN.name(), "목록", -1, false, 60),
+                    new OperatorDTO(OpCode.IS_NULL.name(), "값 없음", 0, false, 70),
+                    new OperatorDTO(OpCode.IS_NOT_NULL.name(), "값 있음", 0, false, 80)
             ),
             DataType.NUMBER, List.of(
-                    new OperatorDTO(OpCode.EQ.name(),   "=",   1, true, 10),
-                    new OperatorDTO(OpCode.NE.name(),   "!=",  1,false, 20),
-                    new OperatorDTO(OpCode.GT.name(),   ">",   1,false, 30),
-                    new OperatorDTO(OpCode.GTE.name(),  ">=",  1,false, 40),
-                    new OperatorDTO(OpCode.LT.name(),   "<",   1,false, 50),
-                    new OperatorDTO(OpCode.LTE.name(),  "<=",  1,false, 60),
-                    new OperatorDTO(OpCode.BETWEEN.name(),"범위",2,false,70),
-                    new OperatorDTO(OpCode.IN.name(),   "목록",-1,false,80),
-                    new OperatorDTO(OpCode.IS_NULL.name(),    "값 없음",0,false,90),
-                    new OperatorDTO(OpCode.IS_NOT_NULL.name(),"값 있음",0,false,100)
+                    new OperatorDTO(OpCode.EQ.name(), "=", 1, true, 10),
+                    new OperatorDTO(OpCode.NE.name(), "!=", 1, false, 20),
+                    new OperatorDTO(OpCode.GT.name(), ">", 1, false, 30),
+                    new OperatorDTO(OpCode.GTE.name(), ">=", 1, false, 40),
+                    new OperatorDTO(OpCode.LT.name(), "<", 1, false, 50),
+                    new OperatorDTO(OpCode.LTE.name(), "<=", 1, false, 60),
+                    new OperatorDTO(OpCode.BETWEEN.name(), "범위", 2, false, 70),
+                    new OperatorDTO(OpCode.IN.name(), "목록", -1, false, 80),
+                    new OperatorDTO(OpCode.IS_NULL.name(), "값 없음", 0, false, 90),
+                    new OperatorDTO(OpCode.IS_NOT_NULL.name(), "값 있음", 0, false, 100)
             ),
             DataType.IP, List.of(
-                    new OperatorDTO(OpCode.EQ.name(),   "=",   1,true, 10),
-                    new OperatorDTO(OpCode.LIKE.name(), "포함",1,false,20),
-                    new OperatorDTO(OpCode.IN.name(),   "목록",-1,false,30),
-                    new OperatorDTO(OpCode.IS_NULL.name(),    "값 없음",0,false,40),
-                    new OperatorDTO(OpCode.IS_NOT_NULL.name(),"값 있음",0,false,50)
+                    new OperatorDTO(OpCode.EQ.name(), "=", 1, true, 10),
+                    new OperatorDTO(OpCode.LIKE.name(), "포함", 1, false, 20),
+                    new OperatorDTO(OpCode.IN.name(), "목록", -1, false, 30),
+                    new OperatorDTO(OpCode.IS_NULL.name(), "값 없음", 0, false, 40),
+                    new OperatorDTO(OpCode.IS_NOT_NULL.name(), "값 있음", 0, false, 50)
             ),
             DataType.DATETIME, List.of(
-                    new OperatorDTO(OpCode.GTE.name(),  "이후(≥)",1,true, 10),
-                    new OperatorDTO(OpCode.LT.name(),   "이전(<)",1,false,20),
-                    new OperatorDTO(OpCode.BETWEEN.name(),"범위", 2,false,30),
-                    new OperatorDTO(OpCode.IN.name(),   "목록", -1,false,40),
-                    new OperatorDTO(OpCode.IS_NULL.name(),    "값 없음",0,false,50),
-                    new OperatorDTO(OpCode.IS_NOT_NULL.name(),"값 있음",0,false,60)
+                    new OperatorDTO(OpCode.GTE.name(), "이후(≥)", 1, true, 10),
+                    new OperatorDTO(OpCode.LT.name(), "이전(<)", 1, false, 20),
+                    new OperatorDTO(OpCode.BETWEEN.name(), "범위", 2, false, 30),
+                    new OperatorDTO(OpCode.IN.name(), "목록", -1, false, 40),
+                    new OperatorDTO(OpCode.IS_NULL.name(), "값 없음", 0, false, 50),
+                    new OperatorDTO(OpCode.IS_NOT_NULL.name(), "값 있음", 0, false, 60)
             ),
             DataType.BOOLEAN, List.of(
-                    new OperatorDTO(OpCode.IS_NULL.name(),    "값 없음",0,false,10),
-                    new OperatorDTO(OpCode.IS_NOT_NULL.name(),"값 있음",0,false,20)
+                    new OperatorDTO(OpCode.IS_NULL.name(), "값 없음", 0, false, 10),
+                    new OperatorDTO(OpCode.IS_NOT_NULL.name(), "값 있음", 0, false, 20)
             )
     );
 
     /**
      * 레이어별 필드 메타 테이블명 매핑
-     * 예: HTTP_PAGE -> http_page_fields
      */
     private String resolveMetaTableByLayer(String layer) {
         if (layer == null || layer.isBlank()) {
@@ -77,10 +77,9 @@ public class SearchFieldService {
         String normalized = layer.trim().toUpperCase(Locale.ROOT);
         return switch (normalized) {
             case "HTTP_PAGE" -> "http_page_fields";
-            case "HTTP_URI"  -> "http_uri_fields";
-            case "TCP"       -> "tcp_fields";
-            case "ETHERNET"  -> "ethernet_fields";
-            // 추가 레이어는 여기에 매핑
+            case "HTTP_URI" -> "http_uri_fields";
+            case "TCP" -> "tcp_fields";
+            case "ETHERNET" -> "ethernet_fields";
             default -> {
                 log.warn("Unknown layer: {}. No meta table mapping found.", layer);
                 yield null;
@@ -98,58 +97,26 @@ public class SearchFieldService {
             return Collections.emptyList();
         }
 
-        // 메타 테이블이 존재하는지 확인
-        if (!tableExists(metaTable)) {
+        // Repository를 통한 테이블 존재 확인
+        if (!repository.existsTable(metaTable)) {
             log.error("Meta table does not exist: {}", metaTable);
             return Collections.emptyList();
         }
 
-        // 메타 테이블에서 필드 정보 조회
-        List<FieldMetaInfo> metaInfos = loadFieldMetaInfo(metaTable);
+        // Repository를 통한 필드 조회
+        List<LayerFieldMeta> metaList = repository.findAllByTableName(metaTable);
 
-        if (metaInfos.isEmpty()) {
+        if (metaList.isEmpty()) {
             log.warn("No fields found in meta table: {}", metaTable);
             return Collections.emptyList();
         }
 
-        // FieldWithOpsDTO 생성
-        return metaInfos.stream().map(meta -> {
-                    DataType dt = parseDataType(meta.dataType);
-                    String normalizedType = dt.name();
-
-                    // label이 없으면 key 사용
-                    String label = (meta.label == null || meta.label.isBlank())
-                            ? meta.fieldKey
-                            : meta.label;
-
-                    // labelKo가 없으면 label 사용
-                    String labelKo = (meta.labelKo == null || meta.labelKo.isBlank())
-                            ? label
-                            : meta.labelKo;
-
-                    // 데이터 타입에 맞는 연산자 목록
-                    List<OperatorDTO> ops = OPS.getOrDefault(dt, Collections.emptyList())
-                            .stream()
-                            .sorted(Comparator.comparingInt(OperatorDTO::getOrderNo))
-                            .toList();
-
-                    return new FieldWithOpsDTO(
-                            meta.fieldKey,
-                            label,
-                            labelKo,
-                            normalizedType,
-                            meta.isInfo,
-                            meta.orderNo,
-                            ops
-                    );
-                })
-                .sorted(Comparator.comparingInt(f ->
-                        f.getOrderNo() != null ? f.getOrderNo() : Integer.MAX_VALUE))
-                .collect(Collectors.toList());
+        // DTO 변환
+        return buildFieldWithOpsDTOs(metaList);
     }
 
     /**
-     * 타입별 연산자 목록 반환 (참고용)
+     * 타입별 연산자 목록 반환
      */
     public Map<String, List<OperatorDTO>> operatorsByType() {
         Map<String, List<OperatorDTO>> map = new LinkedHashMap<>();
@@ -164,76 +131,39 @@ public class SearchFieldService {
 
     // === Private Helper Methods ===
 
-    /**
-     * 메타 테이블에서 필드 정보 조회 (JPA EntityManager 사용)
-     * 테이블 구조: field_key, data_type, label_ko, is_info
-     */
-    private List<FieldMetaInfo> loadFieldMetaInfo(String metaTable) {
-        String sql = String.format("""
-            SELECT 
-                field_key,
-                data_type,
-                label_ko,
-                COALESCE(is_info, false) as is_info
-            FROM %s
-            ORDER BY field_key
-        """, metaTable);
+    private List<FieldWithOpsDTO> buildFieldWithOpsDTOs(List<LayerFieldMeta> metaList) {
+        int[] orderCounter = {0};
 
-        try {
-            @SuppressWarnings("unchecked")
-            List<Object[]> results = entityManager.createNativeQuery(sql).getResultList();
+        return metaList.stream()
+                .map(meta -> {
+                    DataType dt = parseDataType(meta.getDataType());
+                    String normalizedType = dt.name();
 
-            List<FieldMetaInfo> metaInfos = new ArrayList<>();
-            int rowNum = 0;
+                    String label = (meta.getFieldKey() != null) ? meta.getFieldKey() : "";
+                    String labelKo = (meta.getLabelKo() != null && !meta.getLabelKo().isBlank())
+                            ? meta.getLabelKo()
+                            : label;
 
-            for (Object[] row : results) {
-                FieldMetaInfo info = new FieldMetaInfo();
-                info.fieldKey = (String) row[0];
-                info.dataType = (String) row[1];
-                info.labelKo = (String) row[2];
-                info.isInfo = (Boolean) row[3];
-                // label은 field_key 사용, orderNo는 rowNum 기반
-                info.label = info.fieldKey;
-                info.orderNo = (++rowNum) * 10;
+                    List<OperatorDTO> ops = OPS.getOrDefault(dt, Collections.emptyList())
+                            .stream()
+                            .sorted(Comparator.comparingInt(OperatorDTO::getOrderNo))
+                            .toList();
 
-                metaInfos.add(info);
-            }
-
-            log.info("Loaded {} fields from {} using JPA EntityManager", metaInfos.size(), metaTable);
-            return metaInfos;
-
-        } catch (Exception e) {
-            log.error("Error loading field meta info from {}: {}", metaTable, e.getMessage(), e);
-            return Collections.emptyList();
-        }
+                    return new FieldWithOpsDTO(
+                            meta.getFieldKey(),
+                            label,
+                            labelKo,
+                            normalizedType,
+                            meta.getIsInfo() != null && meta.getIsInfo(),
+                            (++orderCounter[0]) * 10,
+                            ops
+                    );
+                })
+                .sorted(Comparator.comparingInt(f ->
+                        f.getOrderNo() != null ? f.getOrderNo() : Integer.MAX_VALUE))
+                .collect(Collectors.toList());
     }
 
-    /**
-     * 테이블 존재 여부 확인 (JPA EntityManager 사용)
-     */
-    private boolean tableExists(String tableName) {
-        String sql = """
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_name = :tableName
-            )
-        """;
-
-        try {
-            Boolean exists = (Boolean) entityManager.createNativeQuery(sql)
-                    .setParameter("tableName", tableName)
-                    .getSingleResult();
-            return exists != null && exists;
-        } catch (Exception e) {
-            log.error("Error checking table existence for {}: {}", tableName, e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * 문자열을 DataType enum으로 변환
-     */
     private DataType parseDataType(String raw) {
         if (raw == null || raw.isBlank()) {
             return DataType.TEXT;
@@ -244,17 +174,5 @@ public class SearchFieldService {
             log.warn("Unknown data type: {}, defaulting to TEXT", raw);
             return DataType.TEXT;
         }
-    }
-
-    /**
-     * 메타 테이블 필드 정보를 담는 내부 클래스
-     */
-    private static class FieldMetaInfo {
-        String fieldKey;
-        String label;
-        String labelKo;
-        String dataType;
-        boolean isInfo;
-        Integer orderNo;
     }
 }

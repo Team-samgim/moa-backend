@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
-public record SignupRequest(
+public record SignupRequestDTO(
         @NotBlank @Size(min = 4, max = 32)
         @Pattern(regexp = "^[a-z0-9_\\-]+$", message = "영문 소문자/숫자/언더스코어/하이픈만 허용")
         String loginId,

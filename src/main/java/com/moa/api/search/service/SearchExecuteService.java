@@ -22,7 +22,7 @@ public class SearchExecuteService {
     private final HttpPageFieldRepository fieldRepo;
 
     public SearchDTO execute(SearchDTO req) {
-        System.out.println("🚀 [SearchExecuteService] execute 시작");
+        System.out.println("[SearchExecuteService] execute 시작");
 
         // 1) 기본값/가드
         String layer = Optional.ofNullable(req.getLayer())
@@ -30,7 +30,7 @@ public class SearchExecuteService {
                 .orElse("HTTP_PAGE");
         System.out.println("  - layer: " + layer);
 
-        // ✅ layer 기반 테이블명 매핑
+        // layer 기반 테이블명 매핑
         String table = resolveTableFromLayer(layer);
         System.out.println("  - table: " + table);
 
@@ -58,7 +58,7 @@ public class SearchExecuteService {
             where.append(where.length() == 0 ? " WHERE " : " AND ");
             where.append(" t.").append(safeColumn(timeField, fieldTypeMap));
 
-            // ✅ 초 단위로 직접 비교 (나노초 변환 제거)
+            // 초 단위로 직접 비교 (나노초 변환 제거)
             where.append(inclusive ? " >= :fromEpoch " : " > :fromEpoch ");
             params.addValue("fromEpoch", time.getFromEpoch());
         }
@@ -66,7 +66,7 @@ public class SearchExecuteService {
             where.append(where.length() == 0 ? " WHERE " : " AND ");
             where.append(" t.").append(safeColumn(timeField, fieldTypeMap));
 
-            // ✅ 초 단위로 직접 비교 (나노초 변환 제거)
+            // 초 단위로 직접 비교 (나노초 변환 제거)
             where.append(inclusive ? " <= :toEpoch " : " < :toEpoch ");
             params.addValue("toEpoch", time.getToEpoch());
         }
@@ -88,11 +88,13 @@ public class SearchExecuteService {
         String order = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOrder).orElse("DESC");
         int limit = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getLimit).orElse(100);
         limit = Math.max(1, Math.min(1000, limit));
+        int offset = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOffset).orElse(0);
+        offset = Math.max(0, offset);
 
         orderBy = safeColumn(orderBy, fieldTypeMap); // 화이트리스트
         order = "ASC".equalsIgnoreCase(order) ? "ASC" : "DESC";
 
-        // ✅ SELECT 절 생성: columns가 있으면 명시적 선택, 없으면 *
+        // SELECT 절 생성: columns가 있으면 명시적 선택, 없으면 *
         String selectClause;
         if (req.getColumns() != null && !req.getColumns().isEmpty()) {
             String cols = req.getColumns().stream()
@@ -103,20 +105,27 @@ public class SearchExecuteService {
             selectClause = "SELECT *";
         }
 
+        String orderExpr = switch (fieldTypeMap.getOrDefault(orderBy, "TEXT").toUpperCase()) {
+            case "NUMBER" -> "t." + orderBy + "::numeric";
+            case "DATETIME" -> "t." + orderBy; // timestamp 계열은 그대로
+            default -> "t." + orderBy + "::text"; // 문자열 계열은 명시적 캐스팅
+        };
+
         String sql = selectClause + " FROM " + table + " t " +
                 where +
-                " ORDER BY t." + orderBy + " " + order +
-                " LIMIT :limit";
+                " ORDER BY " + orderExpr + " " + order +
+                " LIMIT :limit OFFSET :offset";
 
         System.out.println("📝 [SearchExecuteService] 생성된 SQL:");
         System.out.println(sql);
         System.out.println("  - 파라미터: " + params.getValues());
 
         params.addValue("limit", limit);
+        params.addValue("offset", offset);
 
         List<Map<String, Object>> rows = jdbc.queryForList(sql, params);
 
-        System.out.println("✅ [SearchExecuteService] 조회 결과: " + rows.size() + "건");
+        System.out.println("[SearchExecuteService] 조회 결과: " + rows.size() + "건");
         if (!rows.isEmpty()) {
             System.out.println("  - 첫 번째 row: " + rows.get(0));
         }

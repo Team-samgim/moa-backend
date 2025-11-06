@@ -16,6 +16,7 @@ public class SearchResponseDTO {
     private String layer;
     private List<ColumnDTO> columns;
     private List<Map<String, Object>> rows;
+    private Integer total;
 
     @Data
     @AllArgsConstructor
