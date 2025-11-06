@@ -47,7 +47,6 @@ public class GridExportService {
     private final GridRepositoryImpl gridRepository;
     private final ExportFileRepository exportFileRepository;
     private final S3Uploader s3Uploader;
-    private final PresetRepository presetRepository;
     private final S3Props s3Props;
     private final EntityManager em;
 
@@ -57,12 +56,12 @@ public class GridExportService {
         final String prefix = normalizePrefix(s3Props.getS3().getPrefix());
 
         // 1) 인증 컨텍스트에서 memberId 보장
-        Long memberId = resolveMemberId();                  // ★ req 값 무시
+        Long memberId = resolveMemberId();                  // req 값 무시
         Member memberRef = em.getReference(Member.class, memberId);
 
         // 2) 프리셋 확보 (없으면 생성)
         Preset presetRef = (req.getPresetId() == null)
-                ? createPresetFromRequest(req, memberRef)              // ✅ 새 프리셋 생성(EXPORT)
+                ? createPresetFromRequest(req, memberRef)              // 새 프리셋 생성(EXPORT)
                 : em.getReference(Preset.class, req.getPresetId());
 
         // 3) 파일명 & objectKey
@@ -78,7 +77,10 @@ public class GridExportService {
             writeCsvToFile(tmp, req);
             s3Uploader.upload(bucket, objectKey, tmp, "text/csv; charset=utf-8");
         } finally {
-            try { Files.deleteIfExists(tmp); } catch (Exception ignore) {}
+            try {
+                Files.deleteIfExists(tmp);
+            } catch (Exception ignore) {
+            }
         }
 
         // 5) 프리사인드 URL
@@ -122,7 +124,8 @@ public class GridExportService {
 
         Map<String, Object> sort = new LinkedHashMap<>();
         if (req.getSortField() != null && !req.getSortField().isBlank()) sort.put("field", req.getSortField());
-        if (req.getSortDirection() != null && !req.getSortDirection().isBlank()) sort.put("direction", req.getSortDirection());
+        if (req.getSortDirection() != null && !req.getSortDirection().isBlank())
+            sort.put("direction", req.getSortDirection());
 
         Map<String, Object> cfg = new LinkedHashMap<>();
         cfg.put("layer", req.getLayer());
@@ -145,10 +148,11 @@ public class GridExportService {
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        return presetRepository.save(preset);
+        em.persist(preset);   // 영속화
+        em.flush();           // ID 즉시 채움(ExportFile FK에 사용)
+        return preset;
     }
 
-    // ★ 시큐리티는 팀 영역이므로 여기서만 memberId 확정
     private Long resolveMemberId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated())
@@ -170,7 +174,7 @@ public class GridExportService {
     private String sanitizeFileBase(String s) {
         String cleaned = s;
         cleaned = cleaned.replace('\\', ' ');
-        cleaned = cleaned.replace('/',  ' ');
+        cleaned = cleaned.replace('/', ' ');
         cleaned = cleaned.replace('\r', ' ');
         cleaned = cleaned.replace('\n', ' ');
         cleaned = cleaned.replace('\t', ' ');
@@ -189,7 +193,7 @@ public class GridExportService {
 
     private void writeCsvToFile(Path path, ExportGridRequest req) throws Exception {
         List<String> cols = Optional.ofNullable(req.getColumns()).orElseThrow(() -> new IllegalArgumentException("columns is required"));
-        final String layer = (req.getLayer()==null || req.getLayer().isBlank()) ? "ethernet" : req.getLayer();
+        final String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "ethernet" : req.getLayer();
 
         Map<String, String> typeMap = gridRepository.getFrontendTypeMap(layer);
         Map<String, String> temporalMap = gridRepository.getTemporalKindMap(layer);
@@ -240,5 +244,8 @@ public class GridExportService {
             }, rch);
         }
     }
-    private String strip(String c){ return c.contains("-") ? c.substring(0, c.indexOf('-')) : c; }
+
+    private String strip(String c) {
+        return c.contains("-") ? c.substring(0, c.indexOf('-')) : c;
+    }
 }
