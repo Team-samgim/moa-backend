@@ -10,7 +10,9 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -73,6 +75,12 @@ public class PivotService {
 
         TimeWindow tw = resolveTimeWindow(req.getTime());
 
+        List<PivotQueryRequestDTO.ValueDef> valueDefs =
+                (req.getValues() != null) ? req.getValues() : List.of();
+
+        List<PivotQueryRequestDTO.FilterDef> effectiveFilters =
+                resolveTopNFilters(req.getLayer(), valueDefs, req.getFilters(), tw);
+
         String columnFieldName = (req.getColumn() != null) ? req.getColumn().getField() : null;
 
         List<String> columnValues = List.of();
@@ -81,13 +89,10 @@ public class PivotService {
             columnValues = pivotRepository.findTopColumnValues(
                     req.getLayer(),
                     columnFieldName,
-                    req.getFilters(),
+                    effectiveFilters,
                     tw
             );
         }
-
-        List<PivotQueryRequestDTO.ValueDef> valueDefs =
-                (req.getValues() != null) ? req.getValues() : List.of();
 
         // row 그룹들
         List<PivotQueryResponseDTO.RowGroup> rowGroups = pivotRepository.buildRowGroups(
@@ -96,11 +101,11 @@ public class PivotService {
                 req.getValues(),
                 columnFieldName,
                 columnValues,
-                req.getFilters(),
+                effectiveFilters,
                 tw
         );
 
-        // 요청의 values -> Metric DTO로 매핑
+        // metrics 매핑 & summary 는 그대로
         List<PivotQueryResponseDTO.Metric> metrics =
                 valueDefs.stream()
                         .map(v -> PivotQueryResponseDTO.Metric.builder()
@@ -112,8 +117,8 @@ public class PivotService {
                         .toList();
 
         PivotQueryResponseDTO.ColumnField columnField = PivotQueryResponseDTO.ColumnField.builder()
-                .name(columnFieldName)   // null 일 수도 있음
-                .values(columnValues)    // 빈 리스트일 수도 있음
+                .name(columnFieldName)
+                .values(columnValues)
                 .metrics(metrics)
                 .build();
 
@@ -129,6 +134,7 @@ public class PivotService {
     }
 
 
+
     /* ===== 2) 필드 값 페이지네이션 (무한 스크롤 + 검색) ===== */
     public DistinctValuesPageDTO getDistinctValuesPage(DistinctValuesRequestDTO req) {
         TimeWindow tw = resolveTimeWindow(req.getTime());
@@ -141,10 +147,15 @@ public class PivotService {
 
     /* ===== 3) 특정 row group의 subRows + breakdown 조회 ===== */
     public RowGroupItemsResponseDTO getRowGroupItems(RowGroupItemsRequestDTO req) {
+
         TimeWindow tw = resolveTimeWindow(req.getTime());
 
         String layer = req.getLayer();
         String rowField = req.getRowField();
+
+        // 🔥 TOP-N 처리
+        List<PivotQueryRequestDTO.FilterDef> effectiveFilters =
+                resolveTopNFilters(layer, req.getValues(), req.getFilters(), tw);
 
         String columnFieldName = (req.getColumn() != null)
                 ? req.getColumn().getField()
@@ -155,12 +166,11 @@ public class PivotService {
             columnValues = pivotRepository.findTopColumnValues(
                     layer,
                     columnFieldName,
-                    req.getFilters(),
+                    effectiveFilters,   // 🔥 변경
                     tw
             );
         }
 
-        // cursor 파싱
         int offset = 0;
         if (req.getCursor() != null && req.getCursor().startsWith("offset:")) {
             offset = Integer.parseInt(req.getCursor().substring(7));
@@ -168,7 +178,6 @@ public class PivotService {
 
         int limit = req.getLimit() != null ? req.getLimit() : 50;
 
-        // items 조회 (limit + 1로 hasMore 판단)
         List<PivotQueryResponseDTO.RowGroupItem> items =
                 pivotRepository.buildRowGroupItems(
                         layer,
@@ -176,14 +185,13 @@ public class PivotService {
                         req.getValues(),
                         columnFieldName,
                         columnValues,
-                        req.getFilters(),
+                        effectiveFilters,
                         tw,
                         offset,
                         limit + 1,
                         req.getSort()
                 );
 
-        // hasMore 판단 및 초과분 제거
         boolean hasMore = items.size() > limit;
         if (hasMore) {
             items = items.subList(0, limit);
@@ -201,4 +209,91 @@ public class PivotService {
                 .hasMore(hasMore)
                 .build();
     }
+
+
+    private List<PivotQueryRequestDTO.FilterDef> resolveTopNFilters(
+            String layer,
+            List<PivotQueryRequestDTO.ValueDef> values,  // metrics
+            List<PivotQueryRequestDTO.FilterDef> filters,
+            TimeWindow tw
+    ) {
+        if (filters == null || filters.isEmpty()) {
+            return List.of();
+        }
+
+        // baseFilters: topN 정보는 제거한 상태 (where 절 구성용 공통)
+        List<PivotQueryRequestDTO.FilterDef> baseFilters = new ArrayList<>();
+        for (PivotQueryRequestDTO.FilterDef f : filters) {
+            PivotQueryRequestDTO.FilterDef copy = new PivotQueryRequestDTO.FilterDef();
+            copy.setField(f.getField());
+            copy.setOp(f.getOp());
+            copy.setValue(f.getValue());
+            copy.setOrder(f.getOrder());
+            copy.setTopN(null);
+            baseFilters.add(copy);
+        }
+
+        List<PivotQueryRequestDTO.FilterDef> resolved = new ArrayList<>();
+
+        for (PivotQueryRequestDTO.FilterDef original : filters) {
+            PivotQueryRequestDTO.TopNDef topN = original.getTopN();
+            boolean enabled = topN != null && Boolean.TRUE.equals(topN.getEnabled());
+
+            if (!enabled) {
+                // topN 없는 필터는 baseFilters 버전 중 동일 field를 찾아 사용
+                baseFilters.stream()
+                        .filter(f -> Objects.equals(f.getField(), original.getField()))
+                        .findFirst()
+                        .ifPresent(resolved::add);
+                continue;
+            }
+
+            // 1) 후보 중 TopN
+            List<PivotQueryRequestDTO.FilterDef> filtersForTopN = baseFilters;
+
+            // 2) 이 TOP-N에 사용할 metric 찾기 (alias == valueKey)
+            PivotQueryRequestDTO.ValueDef metricDef = null;
+            if (values != null) {
+                for (PivotQueryRequestDTO.ValueDef v : values) {
+                    if (topN.getValueKey() != null
+                            && topN.getValueKey().equals(v.getAlias())) {
+                        metricDef = v;
+                        break;
+                    }
+                }
+            }
+
+            if (metricDef == null) {
+                // 매칭되는 metric 이 없으면, 그냥 기존 필터의 base 버전 사용 (안전하게 fallback)
+                baseFilters.stream()
+                        .filter(f -> Objects.equals(f.getField(), original.getField()))
+                        .findFirst()
+                        .ifPresent(resolved::add);
+                continue;
+            }
+
+            // 3) repo 를 통해 상위/하위 N dimension 값 조회
+            List<String> topNValues = pivotRepository.findTopNDimensionValues(
+                    layer,
+                    original.getField(),
+                    topN,
+                    metricDef,
+                    filtersForTopN,
+                    tw
+            );
+
+            // 4) 이 필터를 "field IN (:topNValues)" 필터로 치환
+            PivotQueryRequestDTO.FilterDef replaced = new PivotQueryRequestDTO.FilterDef();
+            replaced.setField(original.getField());
+            replaced.setOp("IN");
+            replaced.setValue(topNValues);
+            replaced.setOrder(original.getOrder());
+            replaced.setTopN(null);
+
+            resolved.add(replaced);
+        }
+
+        return resolved;
+    }
+
 }

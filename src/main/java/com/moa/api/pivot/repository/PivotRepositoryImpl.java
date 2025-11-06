@@ -509,4 +509,51 @@ public class PivotRepositoryImpl implements PivotRepository {
         return items;
     }
 
+    @Override
+    public List<String> findTopNDimensionValues(
+            String layer,
+            String field,
+            PivotQueryRequestDTO.TopNDef topN,
+            PivotQueryRequestDTO.ValueDef metric,
+            List<PivotQueryRequestDTO.FilterDef> filters,
+            TimeWindow tw
+    ) {
+        if (topN == null || metric == null) {
+            return List.of();
+        }
+
+        String table = sql.table(layer);
+        String dimCol = sql.col(layer, field);              // dimension 컬럼
+        String metricCol = sql.col(layer, metric.getField()); // metric 대상 컬럼
+
+        String aggFunc = metric.getAgg() != null
+                ? metric.getAgg().toUpperCase()
+                : "SUM";
+
+        String orderDir = "bottom".equalsIgnoreCase(topN.getMode())
+                ? "ASC"
+                : "DESC"; // 기본은 Top = DESC
+
+        int limit = (topN.getN() != null && topN.getN() > 0)
+                ? topN.getN()
+                : 5;
+
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
+
+        String text = """
+        SELECT %s AS dim_val,
+               %s(%s) AS metric_val
+        FROM %s
+        %s
+        GROUP BY %s
+        ORDER BY metric_val %s
+        LIMIT :lim
+    """.formatted(dimCol, aggFunc, metricCol, table, where, dimCol, orderDir);
+
+        ps.addValue("lim", limit);
+
+        return jdbc.query(text, ps, (rs, i) -> rs.getString("dim_val"));
+    }
+
 }

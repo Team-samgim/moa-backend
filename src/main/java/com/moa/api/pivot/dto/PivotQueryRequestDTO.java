@@ -73,6 +73,18 @@ public class PivotQueryRequestDTO {
         private String field;  // ex: "country_name_res"
         private String op;     // ex: "=", "IN", "LIKE", ...
         private Object value;  // ex: "KR" or [1,12,21,...]
+        private TopNDef topN;
+        private String order;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @NoArgsConstructor
+    @Data
+    public static class TopNDef {
+        private Boolean enabled;   // true/false
+        private Integer n;         // 예: 5
+        private String mode;       // "top" | "bottom"
+        private String valueKey;   // 프론트는 metric alias를 보냄 (예: "합계: page_http_len_res")
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
