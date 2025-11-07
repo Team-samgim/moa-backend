@@ -39,6 +39,16 @@ public interface PivotRepository {
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw,
             int offset,
-            int limit
+            int limit,
+            PivotQueryRequestDTO.SortDef sort
+    );
+
+    List<String> findTopNDimensionValues(
+            String layer,
+            String field,   // dimension (row/column)
+            PivotQueryRequestDTO.TopNDef topN,
+            PivotQueryRequestDTO.ValueDef metric,
+            List<PivotQueryRequestDTO.FilterDef> filters,
+            TimeWindow tw
     );
 }

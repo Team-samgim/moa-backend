@@ -24,6 +24,7 @@ public class PivotQueryRequestDTO {
     private List<FilterDef> filters;
 
     private TimeDef time;
+    private SortDef sort;
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     @NoArgsConstructor
@@ -72,6 +73,18 @@ public class PivotQueryRequestDTO {
         private String field;  // ex: "country_name_res"
         private String op;     // ex: "=", "IN", "LIKE", ...
         private Object value;  // ex: "KR" or [1,12,21,...]
+        private TopNDef topN;
+        private String order;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @NoArgsConstructor
+    @Data
+    public static class TopNDef {
+        private Boolean enabled;   // true/false
+        private Integer n;         // 예: 5
+        private String mode;       // "top" | "bottom"
+        private String valueKey;   // 프론트는 metric alias를 보냄 (예: "합계: page_http_len_res")
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -87,9 +100,10 @@ public class PivotQueryRequestDTO {
     @NoArgsConstructor
     @Data
     public static class SortDef {
-        private String mode;       // "value" (나중에 "row", "column"으로 확장 가능)
-        private String valueField; // ValueDef.field (ex: "page_http_len_res")
-        private String agg;        // ValueDef.agg   (ex: "sum")
-        private String direction;  // "asc" | "desc"
+        private String mode;        // "value" 정도로 시작
+        private String columnValue; // 어떤 columnField.values 값인지 (예: "South Korea")
+        private String valueField;  // ValueDef.field (ex: "page_http_len_res")
+        private String agg;         // ValueDef.agg   (ex: "sum")
+        private String direction;   // "asc" | "desc"
     }
 }

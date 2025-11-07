@@ -2,10 +2,8 @@ package com.moa.api.pivot.model;
 
 import lombok.Value;
 
-import java.time.LocalDateTime;
-
 @Value
 public class TimeWindow {
-    LocalDateTime from;
-    LocalDateTime to;
+    double fromEpoch;  // UNIX epoch (seconds) 시작
+    double toEpoch;    // UNIX epoch (seconds) 끝
 }
