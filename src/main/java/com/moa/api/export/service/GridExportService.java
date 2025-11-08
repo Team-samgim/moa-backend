@@ -1,16 +1,16 @@
 package com.moa.api.export.service;
 
-import com.moa.api.export.dto.ExportCreateResponse;
-import com.moa.api.export.dto.ExportGridRequest;
+import com.moa.api.export.dto.ExportCreateResponseDTO;
+import com.moa.api.export.dto.ExportGridRequestDTO;
 import com.moa.api.export.entity.ExportFile;
 import com.moa.api.export.repository.ExportFileRepository;
+import com.moa.api.grid.dto.SqlDTO;
 import com.moa.api.grid.repository.GridRepositoryImpl;
 import com.moa.api.grid.util.QueryBuilder;
 import com.moa.api.member.entity.Member;
 import com.moa.api.preset.entity.Preset;
 import com.moa.api.preset.entity.PresetOrigin;
 import com.moa.api.preset.entity.PresetType;
-import com.moa.api.preset.repository.PresetRepository;
 import com.moa.global.aws.S3Props;
 import com.moa.global.aws.S3Uploader;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,7 +51,7 @@ public class GridExportService {
     private final EntityManager em;
 
     @Transactional
-    public ExportCreateResponse exportCsv(ExportGridRequest req) throws Exception {
+    public ExportCreateResponseDTO exportCsv(ExportGridRequestDTO req) throws Exception {
         final String bucket = s3Props.getS3().getBucket();
         final String prefix = normalizePrefix(s3Props.getS3().getPrefix());
 
@@ -100,7 +100,7 @@ public class GridExportService {
                 .build();
         exportFileRepository.save(row);
 
-        return ExportCreateResponse.builder()
+        return ExportCreateResponseDTO.builder()
                 .exportId(row.getExportId())
                 .bucket(bucket)
                 .objectKey(objectKey)
@@ -117,7 +117,7 @@ public class GridExportService {
     }
 
     // ★ Member 연관관계로 프리셋 생성
-    private Preset createPresetFromRequest(ExportGridRequest req, Member member) {
+    private Preset createPresetFromRequest(ExportGridRequestDTO req, Member member) {
         String name = Optional.ofNullable(req.getFileName())
                 .map(fn -> fn.replace(".csv", ""))
                 .orElse("Grid Export " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
@@ -191,24 +191,24 @@ public class GridExportService {
         return (prefix + datePath + "/" + UUID.randomUUID() + "/" + fileName).replace("//", "/");
     }
 
-    private void writeCsvToFile(Path path, ExportGridRequest req) throws Exception {
+    private void writeCsvToFile(Path path, ExportGridRequestDTO req) throws Exception {
         List<String> cols = Optional.ofNullable(req.getColumns()).orElseThrow(() -> new IllegalArgumentException("columns is required"));
         final String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "ethernet" : req.getLayer();
 
         Map<String, String> typeMap = gridRepository.getFrontendTypeMap(layer);
         Map<String, String> temporalMap = gridRepository.getTemporalKindMap(layer);
 
-        // ✅ 실존 컬럼만 선택(에러 예방)
+        // 실존 컬럼만 선택
         List<String> safeCols = cols.stream().filter(c -> typeMap.containsKey(strip(c))).toList();
         if (safeCols.isEmpty()) throw new IllegalArgumentException("no valid columns to export");
 
-        String sql = queryBuilder.buildSelectSQLForExport(
+        SqlDTO s = queryBuilder.buildSelectSQLForExport(
                 layer,
-                safeCols,                                 // ✅ safe columns
+                safeCols,
                 req.getSortField(),
                 req.getSortDirection(),
                 req.getFilterModelJson(),
-                req.getBaseSpecJson(),                    // ✅ baseSpec 추가
+                req.getBaseSpecJson(),
                 typeMap,
                 temporalMap
         );
@@ -238,8 +238,12 @@ public class GridExportService {
 
             jdbcTemplate.query(con -> {
                 con.setAutoCommit(false);
-                var ps = con.prepareStatement(sql, java.sql.ResultSet.TYPE_FORWARD_ONLY, java.sql.ResultSet.CONCUR_READ_ONLY);
+                var ps = con.prepareStatement(s.getSql(),
+                        java.sql.ResultSet.TYPE_FORWARD_ONLY,
+                        java.sql.ResultSet.CONCUR_READ_ONLY);
                 ps.setFetchSize(fetch);
+                int idx = 1;
+                for (Object a : s.getArgs()) ps.setObject(idx++, a);
                 return ps;
             }, rch);
         }

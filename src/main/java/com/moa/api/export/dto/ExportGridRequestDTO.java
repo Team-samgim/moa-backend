@@ -9,7 +9,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ExportGridRequest {
+public class ExportGridRequestDTO {
     private Long memberId;             // 서버 인증
     private Integer presetId;          // 프리셋과 연결(없으면 0 대신 null 금지 -> 프리셋 먼저 저장하고 id 사용 추천)
 

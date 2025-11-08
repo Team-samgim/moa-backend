@@ -1,7 +1,7 @@
 package com.moa.api.export.controller;
 
-import com.moa.api.export.dto.ExportCreateResponse;
-import com.moa.api.export.dto.ExportGridRequest;
+import com.moa.api.export.dto.ExportCreateResponseDTO;
+import com.moa.api.export.dto.ExportGridRequestDTO;
 import com.moa.api.export.service.GridExportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -18,12 +18,12 @@ public class ExportController {
     private final GridExportService gridExportService;
 
     @PostMapping("/grid")
-    public ResponseEntity<ExportCreateResponse> exportGridCsv(@RequestBody ExportGridRequest req) throws Exception {
+    public ResponseEntity<ExportCreateResponseDTO> exportGridCsv(@RequestBody ExportGridRequestDTO req) throws Exception {
         // 필수값: memberId, layer, columns
         if (req.getLayer() == null || req.getColumns() == null || req.getColumns().isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
-        ExportCreateResponse res = gridExportService.exportCsv(req);
+        ExportCreateResponseDTO res = gridExportService.exportCsv(req);
         return ResponseEntity.ok(res);
     }
 }

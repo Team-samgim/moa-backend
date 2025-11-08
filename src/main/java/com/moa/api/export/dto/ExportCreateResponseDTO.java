@@ -7,7 +7,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ExportCreateResponse {
+public class ExportCreateResponseDTO {
     private Long exportId;
     private String bucket;
     private String objectKey;

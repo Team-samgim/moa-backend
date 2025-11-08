@@ -2,7 +2,7 @@ package com.moa.api.grid.dto;
 
 import java.util.List;
 
-public record DistinctPage(
+public record DistinctPageDTO(
         List<String> values,
         long total,
         int offset,
