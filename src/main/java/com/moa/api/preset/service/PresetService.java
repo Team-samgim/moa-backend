@@ -1,7 +1,7 @@
 package com.moa.api.preset.service;
 
-import com.moa.api.preset.dto.SaveSearchPresetRequest;
-import com.moa.api.preset.dto.SaveSearchPresetResponse;
+import com.moa.api.preset.dto.SaveSearchPresetRequestDTO;
+import com.moa.api.preset.dto.SaveSearchPresetResponseDTO;
 import com.moa.api.preset.entity.PresetOrigin;
 import com.moa.api.preset.repository.PresetRepository;
 import lombok.RequiredArgsConstructor;
@@ -9,14 +9,12 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
-import java.util.Map;
-
 @Service
 @RequiredArgsConstructor
 public class PresetService {
     private final PresetRepository repo;
 
-    public SaveSearchPresetResponse saveGrid(SaveSearchPresetRequest req) throws Exception {
+    public SaveSearchPresetResponseDTO saveGrid(SaveSearchPresetRequestDTO req) throws Exception {
         if (req.getPresetName() == null || req.getPresetName().isBlank())
             throw new IllegalArgumentException("presetName is required");
         if (req.getConfig() == null)
@@ -30,7 +28,7 @@ public class PresetService {
                 Boolean.TRUE.equals(req.getFavorite()),
                 PresetOrigin.USER                 // ★ 항상 USER로 저장
         );
-        return new SaveSearchPresetResponse(id);
+        return new SaveSearchPresetResponseDTO(id);
     }
 
     private Long resolveMemberId() {

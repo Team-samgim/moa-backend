@@ -7,7 +7,7 @@ import java.util.Map;
 
 @Getter
 @Setter
-public class SaveSearchPresetRequest {
+public class SaveSearchPresetRequestDTO {
     private String presetName;          // required
     private String presetType;          // e.g. "SEARCH"
     private Map<String, Object> config; // required (현재 검색 상태)

@@ -5,6 +5,6 @@ import lombok.Getter;
 
 @Getter
 @AllArgsConstructor
-public class SaveSearchPresetResponse {
+public class SaveSearchPresetResponseDTO {
     private Integer presetId;
 }
