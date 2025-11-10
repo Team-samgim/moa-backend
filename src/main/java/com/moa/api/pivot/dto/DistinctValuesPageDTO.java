@@ -12,4 +12,5 @@ public class DistinctValuesPageDTO {
     private List<String> items;
     private String nextCursor;
     private boolean hasMore;
+    private Integer totalCount;
 }

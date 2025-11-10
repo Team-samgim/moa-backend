@@ -201,15 +201,40 @@ public class SqlSupport {
 
         if (cursorBase64 == null || cursorBase64.isBlank()) return whereSoFar;
 
-        String c = col(layer, field);
+        String c = col(layer, field); // ex) "\"page_idx\"" 혹은 "\"mac\"::text"
         String ord = "DESC".equalsIgnoreCase(order) ? "DESC" : "ASC";
         String lastVal = CursorCodec.decode(cursorBase64);
 
         if (lastVal == null || lastVal.isBlank()) return whereSoFar;
 
         String cmp = ord.equals("ASC") ? " > " : " < ";
-        ps.addValue("__cursor_val", lastVal);
+
+        String tableName = table(layer);               // ex) "http_page_sample"
+        String dataType  = getColumnType(tableName, field); // ex) "bigint", "character varying", "macaddr", ...
+
+        Object cursorValue;
+
+        try {
+            if ("bigint".equalsIgnoreCase(dataType)) {
+                cursorValue = Long.valueOf(lastVal);
+            } else if ("integer".equalsIgnoreCase(dataType) || "smallint".equalsIgnoreCase(dataType)) {
+                cursorValue = Integer.valueOf(lastVal);
+            } else if ("numeric".equalsIgnoreCase(dataType)
+                    || "double precision".equalsIgnoreCase(dataType)
+                    || "real".equalsIgnoreCase(dataType)) {
+                cursorValue = new java.math.BigDecimal(lastVal);
+            } else {
+                // macaddr / character varying / text 등은 문자열 비교
+                cursorValue = lastVal;
+            }
+        } catch (NumberFormatException ex) {
+            // 혹시 디코딩 값이 숫자로 파싱 안 되면 그냥 문자열로 비교
+            cursorValue = lastVal;
+        }
+
+        ps.addValue("__cursor_val", cursorValue);
 
         return whereSoFar + " AND " + c + cmp + " :__cursor_val ";
     }
+
 }

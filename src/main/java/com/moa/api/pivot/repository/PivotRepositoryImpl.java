@@ -1,6 +1,8 @@
 package com.moa.api.pivot.repository;
 
 import com.moa.api.pivot.dto.*;
+import com.moa.api.pivot.exception.BadRequestException;
+import com.moa.api.pivot.model.PivotFieldMeta;
 import com.moa.api.pivot.model.TimeWindow;
 import com.moa.api.pivot.util.CursorCodec;
 import lombok.RequiredArgsConstructor;
@@ -31,25 +33,34 @@ public class PivotRepositoryImpl implements PivotRepository {
     }
 
     @Override
-    public List<String> findColumnNamesForLayer(String layer) {
-        String tableName = resolveTable(layer);
+    public List<PivotFieldMeta> findFieldMetaForLayer(String layer) {
+        String tableName = resolveFieldsTable(layer); // *_fields 테이블
 
         String sql = """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = :tableName
-            ORDER BY ordinal_position
-        """;
+        SELECT field_key, data_type, label_ko
+        FROM %s
+        ORDER BY field_key
+        """.formatted(tableName);
 
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("tableName", tableName);
-
+        // tableName은 우리가 switch로 화이트리스트 관리하니까 문자열 붙여도 괜찮아
         return jdbc.query(
                 sql,
-                params,
-                (rs, i) -> rs.getString("column_name")
+                (rs, i) -> new PivotFieldMeta(
+                        rs.getString("field_key"),
+                        rs.getString("data_type"),
+                        rs.getString("label_ko")
+                )
         );
+    }
+
+    private String resolveFieldsTable(String layer) {
+        return switch (layer) {
+            case "HTTP_PAGE" -> "http_page_fields";
+            case "Ethernet"  -> "ethernet_fields";
+            case "TCP"       -> "tcp_fields";
+            case "HTTP_URI"  -> "http_uri_fields";
+            default -> throw new IllegalArgumentException("Unsupported layer: " + layer);
+        };
     }
 
     /* ========= 1) 필드 값 페이지네이션 ========= */
@@ -76,13 +87,16 @@ public class PivotRepositoryImpl implements PivotRepository {
             ps.addValue("kw", "%" + req.getKeyword() + "%");
         }
 
-        // 커서 조건
+        String whereForCount = where;  // 커서 없음
+        String whereForPage  = where;  // 커서 들어감
+
+        // 커서 조건 (페이지 조회용에만 적용)
         if (req.getCursor() != null && !req.getCursor().isBlank()) {
-            where = sql.appendCursorCondition(
+            whereForPage = sql.appendCursorCondition(
                     req.getLayer(),
                     req.getField(),
                     req.getOrder(),
-                    where,
+                    whereForPage,
                     req.getCursor(),
                     ps
             );
@@ -91,13 +105,21 @@ public class PivotRepositoryImpl implements PivotRepository {
         String ord = "DESC".equalsIgnoreCase(req.getOrder()) ? "DESC" : "ASC";
         int limit  = Math.min(req.getLimit() != null ? req.getLimit() : 50, 200);
 
+        String countSql = """
+            SELECT COUNT(DISTINCT %s)
+            FROM %s
+            %s
+        """.formatted(col, table, whereForCount);
+
+        Integer totalCount = jdbc.queryForObject(countSql, ps, Integer.class);
+
         String text = """
             SELECT DISTINCT %s AS val
             FROM %s
             %s
             ORDER BY %s %s NULLS LAST
             LIMIT :lim
-        """.formatted(col, table, where, col, ord);
+        """.formatted(col, table, whereForPage, col, ord);
         ps.addValue("lim", limit);
 
         List<String> items = jdbc.query(text, ps, (rs, i) -> {
@@ -108,7 +130,7 @@ public class PivotRepositoryImpl implements PivotRepository {
         boolean hasMore   = items.size() == limit;
         String nextCursor = hasMore ? CursorCodec.encode(items.get(items.size() - 1)) : null;
 
-        return new DistinctValuesPageDTO(items, nextCursor, hasMore);
+        return new DistinctValuesPageDTO(items, nextCursor, hasMore, totalCount);
     }
 
     /* ========= 2) Column 축 상위 값 ========= */
@@ -556,4 +578,199 @@ public class PivotRepositoryImpl implements PivotRepository {
         return jdbc.query(text, ps, (rs, i) -> rs.getString("dim_val"));
     }
 
+    @Override
+    public PivotChartResponseDTO getChart(PivotChartRequestDTO req, TimeWindow tw) {
+
+        String layer = req.getLayer();
+        if (layer == null || layer.isBlank()) {
+            throw new BadRequestException("layer is required");
+        }
+
+        PivotChartRequestDTO.XDef xDef = req.getX();
+        PivotChartRequestDTO.YDef yDef = req.getY();
+
+        if (xDef == null || xDef.getField() == null || xDef.getField().isBlank()) {
+            throw new BadRequestException("x.field is required");
+        }
+        if (yDef == null || yDef.getMetrics() == null || yDef.getMetrics().isEmpty()) {
+            return PivotChartResponseDTO.empty(xDef.getField());
+        }
+
+        String table = sql.table(layer);
+        String xCol  = sql.col(layer, xDef.getField());
+
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+
+        // 시간 컬럼
+        String timeField = "ts_server_nsec";
+        if (req.getTime() != null && req.getTime().getField() != null &&
+                !req.getTime().getField().isBlank()) {
+            timeField = req.getTime().getField();
+        }
+
+        // 기본 필터 + manual 모드일 때 xField IN selectedItems 추가 필터
+        List<PivotQueryRequestDTO.FilterDef> filters =
+                req.getFilters() != null ? new ArrayList<>(req.getFilters()) : new ArrayList<>();
+
+        List<String> manualSelected = null;
+        if ("manual".equalsIgnoreCase(xDef.getMode())
+                && xDef.getSelectedItems() != null
+                && !xDef.getSelectedItems().isEmpty()) {
+
+            manualSelected = xDef.getSelectedItems();
+
+            PivotQueryRequestDTO.FilterDef xf = new PivotQueryRequestDTO.FilterDef();
+            xf.setField(xDef.getField());
+            xf.setOp("IN");
+            xf.setValue(new ArrayList<>(manualSelected)); // where()에서 "(empty)" 처리 포함
+            filters.add(xf);
+        }
+
+        String where = sql.where(layer, timeField, tw, filters, ps);
+
+        // metrics → SELECT 절 만들기
+        List<PivotQueryRequestDTO.ValueDef> metrics = yDef.getMetrics();
+        List<String> selectMetrics = new ArrayList<>();
+
+        for (int i = 0; i < metrics.size(); i++) {
+            PivotQueryRequestDTO.ValueDef v = metrics.get(i);
+            String agg = v.getAgg() != null ? v.getAgg().toLowerCase() : "sum";
+
+            String colExpr;
+            if ("count".equals(agg)) {
+                colExpr = "COUNT(*)";
+            } else {
+                String valCol = sql.col(layer, v.getField());
+                switch (agg) {
+                    case "avg" -> colExpr = "AVG(" + valCol + ")";
+                    case "min" -> colExpr = "MIN(" + valCol + ")";
+                    case "max" -> colExpr = "MAX(" + valCol + ")";
+                    default -> colExpr = "SUM(" + valCol + ")";
+                }
+            }
+
+            selectMetrics.add(colExpr + " AS m" + i);
+        }
+
+        String selectMetricSql = String.join(", ", selectMetrics);
+
+        // 정렬: topN이면 첫번째 metric 기준 desc, 아니면 x 컬럼 asc
+        String orderBy;
+        Integer limit = null;
+
+        if ("topN".equalsIgnoreCase(xDef.getMode())) {
+            orderBy = "m0 DESC";
+            if (xDef.getTopN() != null && xDef.getTopN().getN() != null && xDef.getTopN().getN() > 0) {
+                limit = xDef.getTopN().getN();
+            } else {
+                limit = 5; // 기본 N
+            }
+            ps.addValue("lim", limit);
+        } else {
+            orderBy = xCol + " ASC";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT ").append(xCol).append(" AS k, ")
+                .append(selectMetricSql)
+                .append(" FROM ").append(table)
+                .append(" ")
+                .append(where)
+                .append(" GROUP BY ").append(xCol)
+                .append(" ORDER BY ").append(orderBy);
+
+        if (limit != null && limit > 0) {
+            sb.append(" LIMIT :lim");
+        }
+
+        String sqlText = sb.toString();
+
+        // 1차로 DB 결과 읽기
+        List<String> rawCategories = new ArrayList<>();
+        List<List<Double>> rawSeries = new ArrayList<>();
+        for (int i = 0; i < metrics.size(); i++) {
+            rawSeries.add(new ArrayList<>());
+        }
+
+        jdbc.query(sqlText, ps, rs -> {
+            String key = rs.getString("k");
+            if (key == null || key.isBlank()) {
+                key = "(empty)";
+            }
+            rawCategories.add(key);
+
+            for (int i = 0; i < metrics.size(); i++) {
+                String col = "m" + i;
+                double v = rs.getDouble(col);   // ★ 여기만 변경
+                if (rs.wasNull()) {
+                    v = 0.0;
+                }
+                rawSeries.get(i).add(v);
+            }
+        });
+
+        // manual 모드면 selectedItems 순서로 재정렬
+        List<String> finalCategories;
+        List<List<Double>> finalSeries = new ArrayList<>();
+
+        for (int i = 0; i < metrics.size(); i++) {
+            finalSeries.add(new ArrayList<>());
+        }
+
+        if ("manual".equalsIgnoreCase(xDef.getMode())
+                && manualSelected != null
+                && !manualSelected.isEmpty()) {
+
+            Map<String, Integer> pos = new HashMap<>();
+            for (int i = 0; i < rawCategories.size(); i++) {
+                pos.put(rawCategories.get(i), i);
+            }
+
+            finalCategories = new ArrayList<>();
+            for (String sel : manualSelected) {
+                Integer idx = pos.get(sel);
+                if (idx == null) continue;
+                finalCategories.add(sel);
+                for (int m = 0; m < metrics.size(); m++) {
+                    finalSeries.get(m).add(rawSeries.get(m).get(idx));
+                }
+            }
+        } else {
+            finalCategories = rawCategories;
+            finalSeries = rawSeries;
+        }
+
+        // 응답 DTO 조립
+        List<PivotChartResponseDTO.SeriesDef> seriesList = new ArrayList<>();
+        for (int i = 0; i < metrics.size(); i++) {
+            PivotQueryRequestDTO.ValueDef v = metrics.get(i);
+
+            String field = v.getField();
+            String agg   = v.getAgg();
+            String id    = field + "::" + (agg != null ? agg : "agg");
+
+            String label;
+            if (v.getAlias() != null && !v.getAlias().isBlank()) {
+                label = v.getAlias();
+            } else {
+                label = (agg != null ? agg.toUpperCase() : "VAL") + ": " + field;
+            }
+
+            seriesList.add(
+                    PivotChartResponseDTO.SeriesDef.builder()
+                            .id(id)
+                            .label(label)
+                            .field(field)
+                            .agg(agg)
+                            .data(finalSeries.get(i))
+                            .build()
+            );
+        }
+
+        return PivotChartResponseDTO.builder()
+                .xField(xDef.getField())
+                .categories(finalCategories)
+                .series(seriesList)
+                .build();
+    }
 }

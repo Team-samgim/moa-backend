@@ -1,13 +1,14 @@
 package com.moa.api.pivot.repository;
 
 import com.moa.api.pivot.dto.*;
+import com.moa.api.pivot.model.PivotFieldMeta;
 import com.moa.api.pivot.model.TimeWindow;
 
 import java.util.List;
 
 public interface PivotRepository {
 
-    List<String> findColumnNamesForLayer(String layer);
+    List<PivotFieldMeta> findFieldMetaForLayer(String layer);
 
     DistinctValuesPageDTO pageDistinctValues(DistinctValuesRequestDTO req, TimeWindow tw);
 
@@ -51,4 +52,6 @@ public interface PivotRepository {
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw
     );
+
+    PivotChartResponseDTO getChart(PivotChartRequestDTO req, TimeWindow tw);
 }
