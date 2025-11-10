@@ -1,11 +1,13 @@
 package com.moa.api.preset.service;
 
 import com.moa.api.preset.dto.PresetItemDTO;
+import com.moa.api.preset.dto.PresetListResponseDTO;
 import com.moa.api.preset.repository.PresetRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -15,10 +17,19 @@ public class MyPagePresetService {
 
     private final PresetRepository repo;
 
-    public Map<String, Object> findMyPresets(Long userId, int page, int size, String type) {
-        var items = repo.findByMember(userId, type, page, size);
+    public PresetListResponseDTO findMyPresets(Long userId, int page, int size, String type) {
+        int p = Math.max(0, page);
+        int s = Math.max(1, size);
+        List<PresetItemDTO> items = repo.findByMember(userId, type, p, s);
         long total = repo.countByMember(userId, type);
-        return Map.of("items", items, "total", total);
+        int totalPages = (int) Math.ceil((double) total / (double) s);
+        return PresetListResponseDTO.builder()
+                .items(items)
+                .page(p)
+                .size(s)
+                .totalPages(totalPages)
+                .totalItems(total)
+                .build();
     }
 
     @Transactional
