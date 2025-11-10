@@ -1,6 +1,7 @@
 package com.moa.api.preset.controller;
 
 import com.moa.api.preset.dto.PresetItemDTO;
+import com.moa.api.preset.dto.PresetListResponseDTO;
 import com.moa.api.preset.service.MyPagePresetService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -16,10 +17,10 @@ public class MyPagePresetController {
     private final MyPagePresetService service;
 
     @GetMapping
-    public Map<String, Object> list(Authentication auth,
-                                    @RequestParam(defaultValue = "0") int page,
-                                    @RequestParam(defaultValue = "50") int size,
-                                    @RequestParam(required = false) String type) {
+    public PresetListResponseDTO list(Authentication auth,
+                                      @RequestParam(defaultValue = "0") int page,
+                                      @RequestParam(defaultValue = "10") int size,
+                                      @RequestParam(required = false) String type) {
         Long userId = (Long) auth.getPrincipal();
         return service.findMyPresets(userId, page, size, type);
     }
