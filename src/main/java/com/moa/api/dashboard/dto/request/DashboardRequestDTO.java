@@ -1,4 +1,4 @@
-package com.moa.api.dashboard.dto;
+package com.moa.api.dashboard.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
