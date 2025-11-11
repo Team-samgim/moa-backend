@@ -1,6 +1,7 @@
 package com.moa.api.pivot.service;
 
 import com.moa.api.pivot.dto.*;
+import com.moa.api.pivot.model.PivotFieldMeta;
 import com.moa.api.pivot.model.TimeWindow;
 import com.moa.api.pivot.repository.PivotRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,12 +26,15 @@ public class PivotService {
                 ? "HTTP_PAGE"
                 : layerRaw;
 
-        List<String> cols = pivotRepository.findColumnNamesForLayer(layer);
+        List<PivotFieldMeta> metaList = pivotRepository.findFieldMetaForLayer(layer);
 
-        List<PivotFieldsResponseDTO.FieldMeta> fieldMetaList = cols.stream()
-                .map(col -> PivotFieldsResponseDTO.FieldMeta.builder()
-                        .name(col)
-                        .build())
+        List<PivotFieldsResponseDTO.FieldMeta> fieldMetaList = metaList.stream()
+                .map(m -> PivotFieldsResponseDTO.FieldMeta.builder()
+                        .name(m.getName())          // field_key
+                        .label(m.getLabel())        // label_ko
+                        .dataType(m.getDataType())  // data_type
+                        .build()
+                )
                 .toList();
 
         return PivotFieldsResponseDTO.builder()
@@ -296,4 +300,8 @@ public class PivotService {
         return resolved;
     }
 
+    public PivotChartResponseDTO getChart(PivotChartRequestDTO req) {
+        TimeWindow tw = resolveTimeWindow(req.getTime());
+        return pivotRepository.getChart(req, tw);
+    }
 }

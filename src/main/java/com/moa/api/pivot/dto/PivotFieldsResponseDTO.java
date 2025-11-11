@@ -20,8 +20,8 @@ public class PivotFieldsResponseDTO {
     @Builder
     public static class FieldMeta {
         private String name;           // "vlan_id"
-//        private String label;          // "vlan_id" or "VLAN ID"
-//        private String dataType;       // "string" | "number" | "ip" | ...
+        private String label;          // "vlan_id" or "VLAN ID"
+        private String dataType;       // "string" | "number" | "ip" | ...
 //        private boolean aggregatable;  // 집계 가능 여부
 //        private List<String> allowedZones; // ["row","column","value"]: 사용 가능한 영역
 //        private String defaultAgg;     // "sum" | "avg" | null

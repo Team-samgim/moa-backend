@@ -37,4 +37,9 @@ public class PivotController {
     ) {
         return pivotService.getRowGroupItems(req);
     }
+
+    @PostMapping("/chart")
+    public PivotChartResponseDTO chart(@RequestBody PivotChartRequestDTO req) {
+        return pivotService.getChart(req);
+    }
 }
