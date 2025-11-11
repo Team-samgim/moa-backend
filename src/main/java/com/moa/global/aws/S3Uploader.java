@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -71,5 +72,13 @@ public class S3Uploader {
         n = n.replaceAll("[^\\x20-\\x7E]", "_").trim();
         // 빈 결과 방지
         return n.isEmpty() ? "download.csv" : n;
+    }
+
+    /** 단일 객체 삭제 */
+    public void delete(String bucket, String key) {
+        s3.deleteObject(DeleteObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .build());
     }
 }
