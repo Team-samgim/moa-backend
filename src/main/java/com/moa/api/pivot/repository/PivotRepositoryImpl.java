@@ -5,6 +5,7 @@ import com.moa.api.pivot.exception.BadRequestException;
 import com.moa.api.pivot.model.PivotFieldMeta;
 import com.moa.api.pivot.model.TimeWindow;
 import com.moa.api.pivot.util.CursorCodec;
+import com.moa.api.pivot.util.ValueUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -18,7 +19,6 @@ import java.util.stream.Collectors;
 @Repository
 @RequiredArgsConstructor
 public class PivotRepositoryImpl implements PivotRepository {
-
     private final NamedParameterJdbcTemplate jdbc;
     private final SqlSupport sql;
 
@@ -586,18 +586,23 @@ public class PivotRepositoryImpl implements PivotRepository {
             throw new BadRequestException("layer is required");
         }
 
-        PivotChartRequestDTO.XDef xDef = req.getX();
-        PivotChartRequestDTO.YDef yDef = req.getY();
+        PivotChartRequestDTO.AxisDef colDef = req.getCol();
+        PivotChartRequestDTO.AxisDef rowDef = req.getRow();
+        PivotQueryRequestDTO.ValueDef metricDef = req.getMetric();
 
-        if (xDef == null || xDef.getField() == null || xDef.getField().isBlank()) {
-            throw new BadRequestException("x.field is required");
+        if (colDef == null || colDef.getField() == null || colDef.getField().isBlank()) {
+            throw new BadRequestException("col.field is required");
         }
-        if (yDef == null || yDef.getMetrics() == null || yDef.getMetrics().isEmpty()) {
-            return PivotChartResponseDTO.empty(xDef.getField());
+        if (rowDef == null || rowDef.getField() == null || rowDef.getField().isBlank()) {
+            throw new BadRequestException("row.field is required");
+        }
+        if (metricDef == null || metricDef.getField() == null || metricDef.getField().isBlank()) {
+            throw new BadRequestException("metric.field is required");
         }
 
-        String table = sql.table(layer);
-        String xCol  = sql.col(layer, xDef.getField());
+        String table   = sql.table(layer);
+        String colExpr = sql.col(layer, colDef.getField()); // xField용
+        String rowExpr = sql.col(layer, rowDef.getField()); // yField용
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
 
@@ -608,169 +613,216 @@ public class PivotRepositoryImpl implements PivotRepository {
             timeField = req.getTime().getField();
         }
 
-        // 기본 필터 + manual 모드일 때 xField IN selectedItems 추가 필터
-        List<PivotQueryRequestDTO.FilterDef> filters =
+        // 기본 필터 (시간 + 테이블에서 사용자가 설정한 필터들)
+        List<PivotQueryRequestDTO.FilterDef> baseFilters =
                 req.getFilters() != null ? new ArrayList<>(req.getFilters()) : new ArrayList<>();
 
-        List<String> manualSelected = null;
-        if ("manual".equalsIgnoreCase(xDef.getMode())
-                && xDef.getSelectedItems() != null
-                && !xDef.getSelectedItems().isEmpty()) {
+        // chartType에 따라 column 최대 개수 조정 (multiplePie만 6까지 허용)
+        boolean isMultiplePie = "multiplePie".equalsIgnoreCase(req.getChartType());
+        int maxColCount = isMultiplePie ? 6 : 5;  // xField 최대 개수
+        int maxRowCount = 5;                      // yField 최대 개수
 
-            manualSelected = xDef.getSelectedItems();
+        // 1) x, y 각각의 카테고리 목록 계산 (TOP-N / manual)
+        List<String> xCategories = resolveAxisKeys(
+                layer, table, colDef, metricDef,
+                timeField, tw, baseFilters,
+                maxColCount
+        );
+        List<String> yCategories = resolveAxisKeys(
+                layer, table, rowDef, metricDef,
+                timeField, tw, baseFilters,
+                maxRowCount
+        );
 
-            PivotQueryRequestDTO.FilterDef xf = new PivotQueryRequestDTO.FilterDef();
-            xf.setField(xDef.getField());
-            xf.setOp("IN");
-            xf.setValue(new ArrayList<>(manualSelected)); // where()에서 "(empty)" 처리 포함
-            filters.add(xf);
+        // 아무 값도 없으면 empty 응답
+        if (xCategories.isEmpty() || yCategories.isEmpty()) {
+            return PivotChartResponseDTO.empty(colDef.getField(), rowDef.getField());
         }
 
-        String where = sql.where(layer, timeField, tw, filters, ps);
+        // 2) 최종 필터: baseFilters + xField IN (...), yField IN (...)
+        List<PivotQueryRequestDTO.FilterDef> finalFilters = new ArrayList<>(baseFilters);
 
-        // metrics → SELECT 절 만들기
-        List<PivotQueryRequestDTO.ValueDef> metrics = yDef.getMetrics();
-        List<String> selectMetrics = new ArrayList<>();
+        PivotQueryRequestDTO.FilterDef xFilter = new PivotQueryRequestDTO.FilterDef();
+        xFilter.setField(colDef.getField());
+        xFilter.setOp("IN");
+        xFilter.setValue(new ArrayList<>(xCategories)); // "(empty)"는 sql.where에서 처리
+        finalFilters.add(xFilter);
 
-        for (int i = 0; i < metrics.size(); i++) {
-            PivotQueryRequestDTO.ValueDef v = metrics.get(i);
-            String agg = v.getAgg() != null ? v.getAgg().toLowerCase() : "sum";
+        PivotQueryRequestDTO.FilterDef yFilter = new PivotQueryRequestDTO.FilterDef();
+        yFilter.setField(rowDef.getField());
+        yFilter.setOp("IN");
+        yFilter.setValue(new ArrayList<>(yCategories));
+        finalFilters.add(yFilter);
 
-            String colExpr;
-            if ("count".equals(agg)) {
-                colExpr = "COUNT(*)";
-            } else {
-                String valCol = sql.col(layer, v.getField());
-                switch (agg) {
-                    case "avg" -> colExpr = "AVG(" + valCol + ")";
-                    case "min" -> colExpr = "MIN(" + valCol + ")";
-                    case "max" -> colExpr = "MAX(" + valCol + ")";
-                    default -> colExpr = "SUM(" + valCol + ")";
-                }
-            }
+        String where = sql.where(layer, timeField, tw, finalFilters, ps);
 
-            selectMetrics.add(colExpr + " AS m" + i);
-        }
-
-        String selectMetricSql = String.join(", ", selectMetrics);
-
-        // 정렬: topN이면 첫번째 metric 기준 desc, 아니면 x 컬럼 asc
-        String orderBy;
-        Integer limit = null;
-
-        if ("topN".equalsIgnoreCase(xDef.getMode())) {
-            orderBy = "m0 DESC";
-            if (xDef.getTopN() != null && xDef.getTopN().getN() != null && xDef.getTopN().getN() > 0) {
-                limit = xDef.getTopN().getN();
-            } else {
-                limit = 5; // 기본 N
-            }
-            ps.addValue("lim", limit);
-        } else {
-            orderBy = xCol + " ASC";
-        }
+        // metric 표현식 생성 (SUM, AVG, COUNT 등)
+        String metricExpr = buildMetricExpr(metricDef, layer);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("SELECT ").append(xCol).append(" AS k, ")
-                .append(selectMetricSql)
-                .append(" FROM ").append(table)
-                .append(" ")
+        sb.append("SELECT ")
+                .append(colExpr).append(" AS c, ")
+                .append(rowExpr).append(" AS r, ")
+                .append(metricExpr).append(" AS m ")
+                .append("FROM ").append(table).append(" ")
                 .append(where)
-                .append(" GROUP BY ").append(xCol)
-                .append(" ORDER BY ").append(orderBy);
-
-        if (limit != null && limit > 0) {
-            sb.append(" LIMIT :lim");
-        }
+                .append(" GROUP BY ").append(colExpr).append(", ").append(rowExpr);
 
         String sqlText = sb.toString();
 
-        // 1차로 DB 결과 읽기
-        List<String> rawCategories = new ArrayList<>();
-        List<List<Double>> rawSeries = new ArrayList<>();
-        for (int i = 0; i < metrics.size(); i++) {
-            rawSeries.add(new ArrayList<>());
-        }
+        // 3) (y, x) → metric 값 매핑
+        // key: yKey -> (xKey -> value)
+        Map<String, Map<String, Double>> valueMap = new HashMap<>();
 
         jdbc.query(sqlText, ps, rs -> {
-            String key = rs.getString("k");
-            if (key == null || key.isBlank()) {
-                key = "(empty)";
+            String xKey = ValueUtils.normalizeKey(rs.getString("c"));
+            String yKey = ValueUtils.normalizeKey(rs.getString("r"));
+            double v = rs.getDouble("m");
+            if (rs.wasNull()) {
+                v = 0.0;
             }
-            rawCategories.add(key);
 
-            for (int i = 0; i < metrics.size(); i++) {
-                String col = "m" + i;
-                double v = rs.getDouble(col);   // ★ 여기만 변경
-                if (rs.wasNull()) {
-                    v = 0.0;
-                }
-                rawSeries.get(i).add(v);
-            }
+            valueMap
+                    .computeIfAbsent(yKey, k -> new HashMap<>())
+                    .put(xKey, v);
         });
 
-        // manual 모드면 selectedItems 순서로 재정렬
-        List<String> finalCategories;
-        List<List<Double>> finalSeries = new ArrayList<>();
+        // 4) yCategories, xCategories 순서에 맞춰 2D values 구성
+        // values[yIndex][xIndex]
+        List<List<Double>> valuesMatrix = new ArrayList<>();
 
-        for (int i = 0; i < metrics.size(); i++) {
-            finalSeries.add(new ArrayList<>());
-        }
+        for (String yKey : yCategories) {
+            List<Double> rowValues = new ArrayList<>();
+            Map<String, Double> rowMap = valueMap.get(yKey);
 
-        if ("manual".equalsIgnoreCase(xDef.getMode())
-                && manualSelected != null
-                && !manualSelected.isEmpty()) {
-
-            Map<String, Integer> pos = new HashMap<>();
-            for (int i = 0; i < rawCategories.size(); i++) {
-                pos.put(rawCategories.get(i), i);
-            }
-
-            finalCategories = new ArrayList<>();
-            for (String sel : manualSelected) {
-                Integer idx = pos.get(sel);
-                if (idx == null) continue;
-                finalCategories.add(sel);
-                for (int m = 0; m < metrics.size(); m++) {
-                    finalSeries.get(m).add(rawSeries.get(m).get(idx));
+            for (String xKey : xCategories) {
+                double v = 0.0;
+                if (rowMap != null) {
+                    Double vv = rowMap.get(xKey);
+                    if (vv != null) {
+                        v = vv;
+                    }
                 }
+                rowValues.add(v);
             }
+            valuesMatrix.add(rowValues);
+        }
+
+        // 5) metric 단위 series 구성 (지금은 단일 metric이지만 리스트로 감싸둠)
+        String metricField = metricDef.getField();
+        String metricAgg   = metricDef.getAgg();
+
+        String metricId = metricField + "::" + (metricAgg != null ? metricAgg : "agg");
+
+        String metricLabel;
+        if (metricDef.getAlias() != null && !metricDef.getAlias().isBlank()) {
+            metricLabel = metricDef.getAlias();
         } else {
-            finalCategories = rawCategories;
-            finalSeries = rawSeries;
+            String upperAgg = metricAgg != null ? metricAgg.toUpperCase() : "VAL";
+            metricLabel = upperAgg + ": " + metricField;  // ex) "SUM: total_bill"
         }
 
-        // 응답 DTO 조립
-        List<PivotChartResponseDTO.SeriesDef> seriesList = new ArrayList<>();
-        for (int i = 0; i < metrics.size(); i++) {
-            PivotQueryRequestDTO.ValueDef v = metrics.get(i);
-
-            String field = v.getField();
-            String agg   = v.getAgg();
-            String id    = field + "::" + (agg != null ? agg : "agg");
-
-            String label;
-            if (v.getAlias() != null && !v.getAlias().isBlank()) {
-                label = v.getAlias();
-            } else {
-                label = (agg != null ? agg.toUpperCase() : "VAL") + ": " + field;
-            }
-
-            seriesList.add(
-                    PivotChartResponseDTO.SeriesDef.builder()
-                            .id(id)
-                            .label(label)
-                            .field(field)
-                            .agg(agg)
-                            .data(finalSeries.get(i))
-                            .build()
-            );
-        }
+        PivotChartResponseDTO.SeriesDef seriesDef =
+                PivotChartResponseDTO.SeriesDef.builder()
+                        .id(metricId)
+                        .label(metricLabel)
+                        .field(metricField)
+                        .agg(metricAgg)
+                        .values(valuesMatrix)
+                        .build();
 
         return PivotChartResponseDTO.builder()
-                .xField(xDef.getField())
-                .categories(finalCategories)
-                .series(seriesList)
+                .xField(colDef.getField())
+                .yField(rowDef.getField())
+                .xCategories(xCategories)
+                .yCategories(yCategories)
+                .series(Collections.singletonList(seriesDef))
                 .build();
+    }
+
+    private List<String> resolveAxisKeys(
+            String layer,
+            String table,
+            PivotChartRequestDTO.AxisDef axisDef,
+            PivotQueryRequestDTO.ValueDef metricDef,
+            String timeField,
+            TimeWindow tw,
+            List<PivotQueryRequestDTO.FilterDef> baseFilters,
+            int maxCount
+    ) {
+        if (axisDef == null || axisDef.getField() == null || axisDef.getField().isBlank()) {
+            return Collections.emptyList();
+        }
+
+        String mode = axisDef.getMode() != null ? axisDef.getMode().toLowerCase() : "topn";
+
+        // 1) manual 모드: selectedItems 그대로 사용 (최대 maxCount까지)
+        if ("manual".equals(mode)) {
+            List<String> selected = axisDef.getSelectedItems();
+            if (selected == null || selected.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<String> result = new ArrayList<>();
+            for (String v : selected) {
+                if (v == null || v.isBlank()) {
+                    result.add("(empty)");
+                } else {
+                    result.add(v);
+                }
+                if (result.size() >= maxCount) break;
+            }
+            return result;
+        }
+
+        // 2) topN 모드 (기본 5, 최대 maxCount)
+        int n = 5;
+        if (axisDef.getTopN() != null && axisDef.getTopN().getN() != null && axisDef.getTopN().getN() > 0) {
+            n = axisDef.getTopN().getN();
+        }
+        if (n > maxCount) {
+            n = maxCount;
+        }
+
+        String axisExpr = sql.col(layer, axisDef.getField());
+        String metricExpr = buildMetricExpr(metricDef, layer);
+
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sql.where(layer, timeField, tw, baseFilters, ps);
+        ps.addValue("lim", n);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT ")
+                .append(axisExpr).append(" AS k, ")
+                .append(metricExpr).append(" AS m ")
+                .append("FROM ").append(table).append(" ")
+                .append(where)
+                .append(" GROUP BY ").append(axisExpr)
+                .append(" ORDER BY m DESC ")
+                .append(" LIMIT :lim");
+
+        String sqlText = sb.toString();
+
+        List<String> result = new ArrayList<>();
+        jdbc.query(sqlText, ps, rs -> {
+            String key = ValueUtils.normalizeKey(rs.getString("k"));
+            result.add(key);
+        });
+
+        return result;
+    }
+    private String buildMetricExpr(PivotQueryRequestDTO.ValueDef v, String layer) {
+        String agg = v.getAgg() != null ? v.getAgg().toLowerCase() : "sum";
+
+        if ("count".equals(agg)) {
+            return "COUNT(*)";
+        } else {
+            String valCol = sql.col(layer, v.getField());
+            return switch (agg) {
+                case "avg" -> "AVG(" + valCol + ")";
+                case "min" -> "MIN(" + valCol + ")";
+                case "max" -> "MAX(" + valCol + ")";
+                default -> "SUM(" + valCol + ")";
+            };
+        }
     }
 }
