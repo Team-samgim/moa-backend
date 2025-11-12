@@ -810,6 +810,14 @@ public class PivotRepositoryImpl implements PivotRepository {
 
         return result;
     }
+
+    // X축(컬럼) 최대 개수: 너무 많으면 가독성도 죽고 테이블 컬럼 폭도 터짐
+    private static final int HEATMAP_TABLE_MAX_X = 50;
+
+    // 페이지 기본값
+    private static final int DEFAULT_PAGE_LIMIT = 100;
+
+    // metric expr 재사용
     private String buildMetricExpr(PivotQueryRequestDTO.ValueDef v, String layer) {
         String agg = v.getAgg() != null ? v.getAgg().toLowerCase() : "sum";
 
@@ -824,5 +832,257 @@ public class PivotRepositoryImpl implements PivotRepository {
                 default -> "SUM(" + valCol + ")";
             };
         }
+    }
+
+    @Override
+    public PivotHeatmapTableResponseDTO getHeatmapTable(PivotHeatmapTableRequestDTO req, TimeWindow tw) {
+
+        String layer = req.getLayer();
+        if (layer == null || layer.isBlank()) {
+            throw new BadRequestException("layer is required");
+        }
+
+        String colField = req.getColField();
+        String rowField = req.getRowField();
+        PivotQueryRequestDTO.ValueDef metric = req.getMetric();
+
+        if (colField == null || colField.isBlank()) {
+            throw new BadRequestException("colField is required");
+        }
+        if (rowField == null || rowField.isBlank()) {
+            throw new BadRequestException("rowField is required");
+        }
+        if (metric == null || metric.getField() == null || metric.getField().isBlank()) {
+            return PivotHeatmapTableResponseDTO.empty(colField, rowField);
+        }
+
+        // 시간 컬럼
+        String timeField = "ts_server_nsec";
+        if (req.getTime() != null && req.getTime().getField() != null &&
+                !req.getTime().getField().isBlank()) {
+            timeField = req.getTime().getField();
+        }
+
+        // 기본 필터
+        List<PivotQueryRequestDTO.FilterDef> baseFilters =
+                req.getFilters() != null ? new ArrayList<>(req.getFilters()) : new ArrayList<>();
+
+        String table = sql.table(layer);
+        String xCol = sql.col(layer, colField);
+        String yCol = sql.col(layer, rowField);
+
+        String metricExpr = buildMetricExpr(metric, layer);
+
+        // 페이지 계산
+        int offset = 0;
+        int limit = DEFAULT_PAGE_LIMIT;
+        if (req.getPage() != null) {
+            if (req.getPage().getOffset() != null && req.getPage().getOffset() >= 0) {
+                offset = req.getPage().getOffset();
+            }
+            if (req.getPage().getLimit() != null && req.getPage().getLimit() > 0) {
+                limit = req.getPage().getLimit();
+            }
+        }
+
+        // 1) X축 카테고리 (컬럼 헤더) 추출: metric 기준 상위 HEATMAP_TABLE_MAX_X
+        List<String> xCategories = new ArrayList<>();
+        {
+            MapSqlParameterSource ps = new MapSqlParameterSource();
+            String where = sql.where(layer, timeField, tw, baseFilters, ps);
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("SELECT ").append(xCol).append(" AS cx, ")
+                    .append(metricExpr).append(" AS m0 ")
+                    .append("FROM ").append(table).append(" ")
+                    .append(where)
+                    .append(" GROUP BY ").append(xCol)
+                    .append(" ORDER BY m0 DESC")
+                    .append(" LIMIT :limitX");
+
+            ps.addValue("limitX", HEATMAP_TABLE_MAX_X);
+
+            jdbc.query(sb.toString(), ps, rs -> {
+                String cx = rs.getString("cx");
+                if (cx == null || cx.isBlank()) {
+                    cx = "(empty)";
+                }
+                xCategories.add(cx);
+            });
+        }
+
+        if (xCategories.isEmpty()) {
+            return PivotHeatmapTableResponseDTO.empty(colField, rowField);
+        }
+
+        // 2) Y축 카테고리 개수(totalRowCount) 계산
+        long totalRowCount = 0L;
+        {
+            MapSqlParameterSource ps = new MapSqlParameterSource();
+            String where = sql.where(layer, timeField, tw, baseFilters, ps);
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("SELECT COUNT(DISTINCT ").append(yCol).append(") AS cnt ")
+                    .append("FROM ").append(table).append(" ")
+                    .append(where);
+
+            totalRowCount = jdbc.queryForObject(sb.toString(), ps, Long.class);
+            if (totalRowCount == 0L) {
+                return PivotHeatmapTableResponseDTO.empty(colField, rowField);
+            }
+        }
+
+        // 3) 이번 페이지에 표시할 Y축 카테고리 목록 (offset/limit)
+        List<String> yCategories = new ArrayList<>();
+        {
+            MapSqlParameterSource ps = new MapSqlParameterSource();
+            String where = sql.where(layer, timeField, tw, baseFilters, ps);
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("SELECT ").append(yCol).append(" AS ry, ")
+                    .append(metricExpr).append(" AS m0 ")
+                    .append("FROM ").append(table).append(" ")
+                    .append(where)
+                    .append(" GROUP BY ").append(yCol)
+                    .append(" ORDER BY m0 DESC")
+                    .append(" LIMIT :limit OFFSET :offset");
+
+            ps.addValue("limit", limit);
+            ps.addValue("offset", offset);
+
+            jdbc.query(sb.toString(), ps, rs -> {
+                String ry = rs.getString("ry");
+                if (ry == null || ry.isBlank()) {
+                    ry = "(empty)";
+                }
+                yCategories.add(ry);
+            });
+        }
+
+        if (yCategories.isEmpty()) {
+            // offset이 totalRowCount 이상인 상황일 수 있음
+            return PivotHeatmapTableResponseDTO.empty(colField, rowField);
+        }
+
+        // 4) 셀 값 조회: X IN xCategories, Y IN yCategories
+
+        Map<String, Integer> xPos = new HashMap<>();
+        for (int i = 0; i < xCategories.size(); i++) {
+            xPos.put(xCategories.get(i), i);
+        }
+        Map<String, Integer> yPos = new HashMap<>();
+        for (int i = 0; i < yCategories.size(); i++) {
+            yPos.put(yCategories.get(i), i);
+        }
+
+// values[yIdx][xIdx] & rowTotals
+        List<List<Double>> values = new ArrayList<>();
+        List<Double> rowTotals = new ArrayList<>();
+        for (int yi = 0; yi < yCategories.size(); yi++) {
+            List<Double> row = new ArrayList<>();
+            for (int xi = 0; xi < xCategories.size(); xi++) {
+                row.add(0.0);
+            }
+            values.add(row);
+            rowTotals.add(0.0);
+        }
+
+// 여기서는 pageMin/pageMax 선언만 해두고
+        Double pageMin = null;
+        Double pageMax = null;
+
+        {
+            List<PivotQueryRequestDTO.FilterDef> filters = new ArrayList<>(baseFilters);
+
+            PivotQueryRequestDTO.FilterDef fx = new PivotQueryRequestDTO.FilterDef();
+            fx.setField(colField);
+            fx.setOp("IN");
+            fx.setValue(new ArrayList<>(xCategories));
+            filters.add(fx);
+
+            PivotQueryRequestDTO.FilterDef fy = new PivotQueryRequestDTO.FilterDef();
+            fy.setField(rowField);
+            fy.setOp("IN");
+            fy.setValue(new ArrayList<>(yCategories));
+            filters.add(fy);
+
+            MapSqlParameterSource ps = new MapSqlParameterSource();
+            String where = sql.where(layer, timeField, tw, filters, ps);
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("SELECT ")
+                    .append(xCol).append(" AS cx, ")
+                    .append(yCol).append(" AS ry, ")
+                    .append(metricExpr).append(" AS m0 ")
+                    .append("FROM ").append(table).append(" ")
+                    .append(where)
+                    .append(" GROUP BY ").append(xCol).append(", ").append(yCol);
+
+            jdbc.query(sb.toString(), ps, rs -> {
+                String cx = rs.getString("cx");
+                if (cx == null || cx.isBlank()) {
+                    cx = "(empty)";
+                }
+                String ry = rs.getString("ry");
+                if (ry == null || ry.isBlank()) {
+                    ry = "(empty)";
+                }
+
+                Integer xi = xPos.get(cx);
+                Integer yi = yPos.get(ry);
+                if (xi == null || yi == null) {
+                    return;
+                }
+
+                double v = rs.getDouble("m0");
+                if (rs.wasNull()) {
+                    v = 0.0;
+                }
+
+                double old = values.get(yi).get(xi);
+                double newVal = old + v;
+                values.get(yi).set(xi, newVal);
+
+                double oldRowTotal = rowTotals.get(yi);
+                rowTotals.set(yi, oldRowTotal + v);
+            });
+        }
+
+        for (int yi = 0; yi < values.size(); yi++) {
+            List<Double> row = values.get(yi);
+            for (int xi = 0; xi < row.size(); xi++) {
+                double v = row.get(xi);
+                if (pageMin == null || v < pageMin) {
+                    pageMin = v;
+                }
+                if (pageMax == null || v > pageMax) {
+                    pageMax = v;
+                }
+            }
+        }
+
+        // 5) RowDef 리스트로 변환
+        List<PivotHeatmapTableResponseDTO.RowDef> rows = new ArrayList<>();
+        for (int yi = 0; yi < yCategories.size(); yi++) {
+            rows.add(
+                    PivotHeatmapTableResponseDTO.RowDef.builder()
+                            .yCategory(yCategories.get(yi))
+                            .cells(values.get(yi))
+                            .rowTotal(rowTotals.get(yi))
+                            .build()
+            );
+        }
+
+        return PivotHeatmapTableResponseDTO.builder()
+                .xField(colField)
+                .yField(rowField)
+                .xCategories(xCategories)
+                .rows(rows)
+                .totalRowCount(totalRowCount)
+                .offset(offset)
+                .limit(limit)
+                .pageMin(pageMin)
+                .pageMax(pageMax)
+                .build();
     }
 }

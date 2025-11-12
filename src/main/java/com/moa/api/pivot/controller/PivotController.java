@@ -1,6 +1,7 @@
 package com.moa.api.pivot.controller;
 
 import com.moa.api.pivot.dto.*;
+import com.moa.api.pivot.model.TimeWindow;
 import com.moa.api.pivot.service.PivotService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -41,5 +42,10 @@ public class PivotController {
     @PostMapping("/chart")
     public PivotChartResponseDTO chart(@RequestBody PivotChartRequestDTO req) {
         return pivotService.getChart(req);
+    }
+
+    @PostMapping("/heatmap-table")
+    public PivotHeatmapTableResponseDTO heatmapTable(@RequestBody PivotHeatmapTableRequestDTO req) {
+        return pivotService.getHeatmapTable(req);
     }
 }

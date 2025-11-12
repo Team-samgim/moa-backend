@@ -304,4 +304,9 @@ public class PivotService {
         TimeWindow tw = resolveTimeWindow(req.getTime());
         return pivotRepository.getChart(req, tw);
     }
+
+    public PivotHeatmapTableResponseDTO getHeatmapTable(PivotHeatmapTableRequestDTO req) {
+        TimeWindow tw = resolveTimeWindow(req.getTime());
+        return pivotRepository.getHeatmapTable(req, tw);
+    }
 }
