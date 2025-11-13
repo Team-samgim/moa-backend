@@ -1,6 +1,13 @@
 package com.moa.api.pivot.repository;
 
-import com.moa.api.pivot.dto.*;
+import com.moa.api.pivot.dto.request.DistinctValuesRequestDTO;
+import com.moa.api.pivot.dto.request.PivotChartRequestDTO;
+import com.moa.api.pivot.dto.request.PivotHeatmapTableRequestDTO;
+import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
+import com.moa.api.pivot.dto.response.DistinctValuesResponseDTO;
+import com.moa.api.pivot.dto.response.PivotChartResponseDTO;
+import com.moa.api.pivot.dto.response.PivotHeatmapTableResponseDTO;
+import com.moa.api.pivot.dto.response.PivotQueryResponseDTO;
 import com.moa.api.pivot.exception.BadRequestException;
 import com.moa.api.pivot.model.PivotFieldMeta;
 import com.moa.api.pivot.model.TimeWindow;
@@ -66,7 +73,7 @@ public class PivotRepositoryImpl implements PivotRepository {
     /* ========= 1) 필드 값 페이지네이션 ========= */
 
     @Override
-    public DistinctValuesPageDTO pageDistinctValues(DistinctValuesRequestDTO req, TimeWindow tw) {
+    public DistinctValuesResponseDTO pageDistinctValues(DistinctValuesRequestDTO req, TimeWindow tw) {
         String table = sql.table(req.getLayer());
         String col   = sql.col(req.getLayer(), req.getField());
 
@@ -130,7 +137,7 @@ public class PivotRepositoryImpl implements PivotRepository {
         boolean hasMore   = items.size() == limit;
         String nextCursor = hasMore ? CursorCodec.encode(items.get(items.size() - 1)) : null;
 
-        return new DistinctValuesPageDTO(items, nextCursor, hasMore, totalCount);
+        return new DistinctValuesResponseDTO(items, nextCursor, hasMore, totalCount);
     }
 
     /* ========= 2) Column 축 상위 값 ========= */

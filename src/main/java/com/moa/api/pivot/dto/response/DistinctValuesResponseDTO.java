@@ -1,4 +1,4 @@
-package com.moa.api.pivot.dto;
+package com.moa.api.pivot.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -7,7 +7,7 @@ import java.util.List;
 
 @Data
 @AllArgsConstructor
-public class DistinctValuesPageDTO {
+public class DistinctValuesResponseDTO {
 
     private List<String> items;
     private String nextCursor;

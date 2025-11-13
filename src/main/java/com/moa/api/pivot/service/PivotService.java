@@ -1,6 +1,7 @@
 package com.moa.api.pivot.service;
 
-import com.moa.api.pivot.dto.*;
+import com.moa.api.pivot.dto.request.*;
+import com.moa.api.pivot.dto.response.*;
 import com.moa.api.pivot.model.PivotFieldMeta;
 import com.moa.api.pivot.model.TimeWindow;
 import com.moa.api.pivot.repository.PivotRepository;
@@ -140,7 +141,7 @@ public class PivotService {
 
 
     /* ===== 2) 필드 값 페이지네이션 (무한 스크롤 + 검색) ===== */
-    public DistinctValuesPageDTO getDistinctValuesPage(DistinctValuesRequestDTO req) {
+    public DistinctValuesResponseDTO getDistinctValuesPage(DistinctValuesRequestDTO req) {
         TimeWindow tw = resolveTimeWindow(req.getTime());
         // 기본값 보정
         if (req.getOrder() == null) req.setOrder("asc");

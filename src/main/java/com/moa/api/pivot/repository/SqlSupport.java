@@ -1,6 +1,6 @@
 package com.moa.api.pivot.repository;
 
-import com.moa.api.pivot.dto.PivotQueryRequestDTO;
+import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
 import com.moa.api.pivot.exception.BadRequestException;
 import com.moa.api.pivot.exception.ColumnNotAllowedException;
 import com.moa.api.pivot.model.TimeWindow;
