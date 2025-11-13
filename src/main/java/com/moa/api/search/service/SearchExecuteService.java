@@ -1,7 +1,8 @@
 package com.moa.api.search.service;
 
 import com.moa.api.search.dto.SearchDTO;
-import com.moa.api.search.repository.HttpPageFieldRepository;
+import com.moa.api.search.repository.LayerFieldMetaRepository;
+import com.moa.api.search.entity.LayerFieldMeta;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -19,7 +20,7 @@ import com.moa.api.search.registry.OpCode;
 public class SearchExecuteService {
 
     private final NamedParameterJdbcTemplate jdbc;
-    private final HttpPageFieldRepository fieldRepo;
+    private final LayerFieldMetaRepository fieldMetaRepo;
 
     public SearchDTO execute(SearchDTO req) {
         System.out.println("[SearchExecuteService] execute 시작");
@@ -31,11 +32,13 @@ public class SearchExecuteService {
         System.out.println("  - layer: " + layer);
 
         // layer 기반 테이블명 매핑
-        String table = resolveTableFromLayer(layer);
-        System.out.println("  - table: " + table);
+        String dataTable = resolveTableFromLayer(layer);
+        String fieldsTable = resolveFieldsTableFromLayer(layer);
+        System.out.println("  - dataTable: " + dataTable);
+        System.out.println("  - fieldsTable: " + fieldsTable);
 
         SearchDTO.TimeSpec time = Objects.requireNonNull(req.getTime(), "time is required");
-        String timeField = Optional.ofNullable(time.getField()).filter(StringUtils::hasText).orElse("ts_server_nsec"); // ✅ 수정
+        String timeField = Optional.ofNullable(time.getField()).filter(StringUtils::hasText).orElse("ts_server_nsec");
         boolean inclusive = Optional.ofNullable(time.getInclusive()).orElse(true);
 
         System.out.println("  - timeField: " + timeField);
@@ -44,29 +47,32 @@ public class SearchExecuteService {
         System.out.println("  - columns: " + req.getColumns());
         System.out.println("  - conditions: " + req.getConditions());
 
-        // 2) 필드/데이터타입 맵(화이트리스트)
-        Map<String, String> fieldTypeMap = fieldRepo.findAll().stream()
-                .collect(Collectors.toMap(f -> f.getFieldKey(), f -> f.getDataType(), (a, b)->a, LinkedHashMap::new));
+        // 2) 레이어별 필드,데이터타입 맵(화이트리스트) -> SQL인젝션 방지
+        Map<String, String> fieldTypeMap = fieldMetaRepo.findAllByTableName(fieldsTable).stream()
+                .collect(Collectors.toMap(
+                        LayerFieldMeta::getFieldKey,
+                        LayerFieldMeta::getDataType,
+                        (a, b) -> a,
+                        LinkedHashMap::new
+                ));
+
+        System.out.println("  - 로드된 필드 수: " + fieldTypeMap.size());
+        System.out.println("  - 필드 목록: " + fieldTypeMap.keySet());
 
         // 3) WHERE절 생성
         StringBuilder where = new StringBuilder();
         MapSqlParameterSource params = new MapSqlParameterSource();
 
         // 3-1) 기간 조건
-        // 주의: ts_server_nsec 컬럼명이지만 실제로는 초(seconds) 단위로 저장됨
         if (time.getFromEpoch() != null) {
             where.append(where.length() == 0 ? " WHERE " : " AND ");
             where.append(" t.").append(safeColumn(timeField, fieldTypeMap));
-
-            // 초 단위로 직접 비교 (나노초 변환 제거)
             where.append(inclusive ? " >= :fromEpoch " : " > :fromEpoch ");
             params.addValue("fromEpoch", time.getFromEpoch());
         }
         if (time.getToEpoch() != null) {
             where.append(where.length() == 0 ? " WHERE " : " AND ");
             where.append(" t.").append(safeColumn(timeField, fieldTypeMap));
-
-            // 초 단위로 직접 비교 (나노초 변환 제거)
             where.append(inclusive ? " <= :toEpoch " : " < :toEpoch ");
             params.addValue("toEpoch", time.getToEpoch());
         }
@@ -74,7 +80,6 @@ public class SearchExecuteService {
         // 3-2) 조건들
         String condSql = buildConditionsSql(req, fieldTypeMap, params);
         if (StringUtils.hasText(condSql)) {
-            // 전체 NOT은 기간 바깥에 두고 조건만 괄호로 묶어 반전
             where.append(where.length() == 0 ? " WHERE " : " AND ");
             if (req.getNot()) {
                 where.append(" NOT ( ").append(condSql).append(" ) ");
@@ -84,17 +89,17 @@ public class SearchExecuteService {
         }
 
         // 4) ORDER/LIMIT
-        String orderBy = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOrderBy).orElse("ts_server_nsec"); // ✅ 수정
+        String orderBy = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOrderBy).orElse("ts_server_nsec");
         String order = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOrder).orElse("DESC");
         int limit = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getLimit).orElse(100);
         limit = Math.max(1, Math.min(1000, limit));
         int offset = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOffset).orElse(0);
         offset = Math.max(0, offset);
 
-        orderBy = safeColumn(orderBy, fieldTypeMap); // 화이트리스트
+        orderBy = safeColumn(orderBy, fieldTypeMap);
         order = "ASC".equalsIgnoreCase(order) ? "ASC" : "DESC";
 
-        // SELECT 절 생성: columns가 있으면 명시적 선택, 없으면 *
+        // SELECT 절 생성
         String selectClause;
         if (req.getColumns() != null && !req.getColumns().isEmpty()) {
             String cols = req.getColumns().stream()
@@ -107,11 +112,11 @@ public class SearchExecuteService {
 
         String orderExpr = switch (fieldTypeMap.getOrDefault(orderBy, "TEXT").toUpperCase()) {
             case "NUMBER" -> "t." + orderBy + "::numeric";
-            case "DATETIME" -> "t." + orderBy; // timestamp 계열은 그대로
-            default -> "t." + orderBy + "::text"; // 문자열 계열은 명시적 캐스팅
+            case "DATETIME" -> "t." + orderBy;
+            default -> "t." + orderBy + "::text";
         };
 
-        String sql = selectClause + " FROM " + table + " t " +
+        String sql = selectClause + " FROM " + dataTable + " t " +
                 where +
                 " ORDER BY " + orderExpr + " " + order +
                 " LIMIT :limit OFFSET :offset";
@@ -133,7 +138,7 @@ public class SearchExecuteService {
         // (선택) 총 건수
         Integer total = null;
         try {
-            String cntSql = "SELECT COUNT(*) FROM " + table + " t " + where;
+            String cntSql = "SELECT COUNT(*) FROM " + dataTable + " t " + where;
             total = jdbc.queryForObject(cntSql, params, Integer.class);
         } catch (EmptyResultDataAccessException ignore) {}
 
@@ -141,7 +146,8 @@ public class SearchExecuteService {
     }
 
     /**
-     * layer 값에 따라 테이블명 매핑
+     * layer 값에 따라 데이터 테이블명 매핑
+     * _sample 테이블 조회
      */
     private String resolveTableFromLayer(String layer) {
         return switch (layer.toUpperCase(Locale.ROOT)) {
@@ -149,6 +155,20 @@ public class SearchExecuteService {
             case "HTTP_URI" -> "http_uri_sample";
             case "TCP" -> "tcp_sample";
             case "ETHERNET" -> "ethernet_sample";
+            default -> throw new IllegalArgumentException("UNKNOWN_LAYER: " + layer);
+        };
+    }
+
+    /**
+     * layer 값에 따라 필드 메타 테이블명 매핑
+     * _fields 테이블 조회
+     */
+    private String resolveFieldsTableFromLayer(String layer) {
+        return switch (layer.toUpperCase(Locale.ROOT)) {
+            case "HTTP_PAGE" -> "http_page_fields";
+            case "HTTP_URI" -> "http_uri_fields";
+            case "TCP" -> "tcp_fields";
+            case "ETHERNET" -> "ethernet_fields";
             default -> throw new IllegalArgumentException("UNKNOWN_LAYER: " + layer);
         };
     }
@@ -172,13 +192,9 @@ public class SearchExecuteService {
             String op = c.getOp();
             if (!StringUtils.hasText(op)) continue;
 
-            // op 허용 검증 및 템플릿 획득 (DB 대신 고정 레지스트리 사용)
-            String tpl = templateOf(dataType, op); // 예: "${f} = :v1" / "${f} BETWEEN :v1 AND :v2" / "${f} IN (:list)" ...
-
-            // 필드 바인딩
+            String tpl = templateOf(dataType, op);
             String clause = tpl.replace("${f}", "t." + safeColumn(field, fieldTypeMap));
 
-            // 파라미터 이름 유니크하게 치환
             List<Object> values = Optional.ofNullable(c.getValues()).orElse(List.of());
             if (clause.contains(":v1")) {
                 String name = "v1_" + idx;
@@ -197,7 +213,6 @@ public class SearchExecuteService {
                 params.addValue(name, casted);
             }
 
-            // JOIN 처리
             String join = (idx == 0) ? null : Optional.ofNullable(c.getJoin()).orElse("AND");
             if (join != null) {
                 parts.add(join.toUpperCase(Locale.ROOT));
@@ -265,7 +280,7 @@ public class SearchExecuteService {
         };
     }
 
-    // IP (PostgreSQL inet을 TEXT로 비교/목록; 필요 시 캐스팅 조정)
+    // IP
     private String ipTpl(OpCode op) {
         return switch (op) {
             case EQ -> "${f}::text = :v1";
@@ -277,7 +292,7 @@ public class SearchExecuteService {
         };
     }
 
-    // DATETIME (값은 epoch seconds 가정)
+    // DATETIME
     private String datetimeTpl(OpCode op) {
         return switch (op) {
             case GTE -> "${f} >= to_timestamp(:v1)";
@@ -290,7 +305,7 @@ public class SearchExecuteService {
         };
     }
 
-    // BOOLEAN (프론트는 NULL 체크만 사용)
+    // BOOLEAN
     private String booleanTpl(OpCode op) {
         return switch (op) {
             case IS_NULL -> "${f} IS NULL";
@@ -302,14 +317,12 @@ public class SearchExecuteService {
     /** 정렬/컬럼 화이트리스트 보호용 */
     private String safeColumn(String col, Map<String, String> fieldTypeMap) {
         if (!StringUtils.hasText(col)) throw new IllegalArgumentException("EMPTY_COLUMN");
-        // 허용: 메타에 있는 컬럼만
         if (fieldTypeMap.containsKey(col)) return col;
-        // 특별 허용(기간 컬럼 등 메타에 없을 수도 있을 때)
         if ("ts_server".equalsIgnoreCase(col) || "ts_server_nsec".equalsIgnoreCase(col)) return col;
         throw new IllegalArgumentException("FORBIDDEN_COLUMN: " + col);
     }
 
-    /** 간단 캐스팅 (필요시 확장) */
+    /** 간단 캐스팅 */
     private Object castValue(String dataType, Object raw) {
         if (raw == null) return null;
         DataType dt = parseType(dataType);
@@ -319,7 +332,6 @@ public class SearchExecuteService {
                 try { yield Long.valueOf(raw.toString()); } catch (Exception e) { yield raw; }
             }
             case DATETIME -> {
-                // epoch seconds 기대
                 if (raw instanceof Number) yield raw;
                 try { yield Long.valueOf(raw.toString()); } catch (Exception e) { yield raw; }
             }
@@ -327,7 +339,7 @@ public class SearchExecuteService {
                 if (raw instanceof Boolean) yield raw;
                 yield Boolean.valueOf(raw.toString());
             }
-            default -> raw.toString(); // TEXT, IP 등
+            default -> raw.toString();
         };
     }
 }

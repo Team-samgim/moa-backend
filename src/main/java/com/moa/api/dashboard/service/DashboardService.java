@@ -1,6 +1,6 @@
 package com.moa.api.dashboard.service;
 
-import com.moa.api.dashboard.dto.*;
+import com.moa.api.dashboard.dto.response.*;
 import com.moa.api.dashboard.repository.DashboardRepository;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * DashboardService - Unix timestamp 처리
@@ -51,12 +52,12 @@ public class DashboardService {
     // 위젯 1: 실시간 트래픽 추이
     // ============================================
 
-    private List<TrafficTrendDTO> getTrafficTrend(Long startTimeUnix, Long endTimeUnix) {
+    public List<TrafficTrendResponseDTO> getTrafficTrend(Long startTimeUnix, Long endTimeUnix) {
         List<Map<String, Object>> results = repository.getTrafficTrend(startTimeUnix, endTimeUnix);
-        List<TrafficTrendDTO> trends = new ArrayList<>();
+        List<TrafficTrendResponseDTO> trends = new ArrayList<>();
 
         for (Map<String, Object> row : results) {
-            trends.add(new TrafficTrendDTO(
+            trends.add(new TrafficTrendResponseDTO(
                     (Timestamp) row.get("timestamp"),
                     getLong(row, "request_count"),
                     getLong(row, "response_count")
@@ -70,11 +71,11 @@ public class DashboardService {
     // 위젯 2: TCP 에러율
     // ============================================
 
-    private TcpErrorRateDTO getTcpErrorRate(Long startTimeUnix, Long endTimeUnix) {
+    public TcpErrorRateResponseDTO getTcpErrorRate(Long startTimeUnix, Long endTimeUnix) {
         try {
             Map<String, Object> result = repository.getTcpErrorRate(startTimeUnix, endTimeUnix);
 
-            return new TcpErrorRateDTO(
+            return new TcpErrorRateResponseDTO(
                     getDouble(result, "total_error_rate"),
                     getDouble(result, "retransmission_rate"),
                     getDouble(result, "out_of_order_rate"),
@@ -83,7 +84,7 @@ public class DashboardService {
                     getLong(result, "total_packets")
             );
         } catch (Exception e) {
-            return new TcpErrorRateDTO(0.0, 0.0, 0.0, 0.0, 0L, 0L);
+            return new TcpErrorRateResponseDTO(0.0, 0.0, 0.0, 0.0, 0L, 0L);
         }
     }
 
@@ -91,13 +92,44 @@ public class DashboardService {
     // 위젯 3: 지역별 트래픽 분포
     // ============================================
 
-    private List<TrafficByCountryDTO> getTrafficByCountry(Long startTimeUnix, Long endTimeUnix) {
+    @Cacheable(value = "trafficByCountry", key = "#startTimeUnix + '-' + #endTimeUnix")
+    public List<TrafficByCountryResponseDTO> getTrafficByCountry(Long startTimeUnix, Long endTimeUnix) {
         List<Map<String, Object>> results = repository.getTrafficByCountry(startTimeUnix, endTimeUnix);
-        List<TrafficByCountryDTO> countries = new ArrayList<>();
+        List<TrafficByCountryResponseDTO> countries = new ArrayList<>();
 
         for (Map<String, Object> row : results) {
-            countries.add(new TrafficByCountryDTO(
+            countries.add(new TrafficByCountryResponseDTO(
                     (String) row.get("country_name"),
+                    getLong(row, "traffic_volume"),
+                    getLong(row, "request_count"),
+                    getDouble(row, "percentage")
+            ));
+        }
+
+        return countries;
+    }
+
+    /**
+     * ✅ 특정 국가만 필터링해서 조회
+     */
+    @Cacheable(value = "trafficByCountries",
+            key = "#startTimeUnix + '-' + #endTimeUnix + '-' + #countryNames.hashCode()")
+    public List<TrafficByCountryResponseDTO> getTrafficByCountries(
+            Long startTimeUnix,
+            Long endTimeUnix,
+            List<String> countryNames) {
+
+        // DB에서 특정 국가만 조회
+        List<Map<String, Object>> results = repository.getTrafficByCountries(
+                startTimeUnix,
+                endTimeUnix,
+                countryNames  // ✅ "South Korea", "United States of America" 전달
+        );
+
+        List<TrafficByCountryResponseDTO> countries = new ArrayList<>();
+        for (Map<String, Object> row : results) {
+            countries.add(new TrafficByCountryResponseDTO(
+                    (String) row.get("country_name"),  // ✅ 전체 이름 그대로 반환
                     getLong(row, "traffic_volume"),
                     getLong(row, "request_count"),
                     getDouble(row, "percentage")
@@ -111,11 +143,11 @@ public class DashboardService {
     // 위젯 4: HTTP 상태코드 분포
     // ============================================
 
-    private HttpStatusCodeDTO getHttpStatusCodeDistribution(Long startTimeUnix, Long endTimeUnix) {
+    public HttpStatusCodeResponseDTO getHttpStatusCodeDistribution(Long startTimeUnix, Long endTimeUnix) {
         try {
             Map<String, Object> result = repository.getHttpStatusCodeDistribution(startTimeUnix, endTimeUnix);
 
-            return new HttpStatusCodeDTO(
+            return new HttpStatusCodeResponseDTO(
                     getLong(result, "success_count"),
                     getLong(result, "redirect_count"),
                     getLong(result, "client_error_count"),
@@ -123,7 +155,7 @@ public class DashboardService {
                     getLong(result, "total_count")
             );
         } catch (Exception e) {
-            return new HttpStatusCodeDTO(0L, 0L, 0L, 0L, 0L);
+            return new HttpStatusCodeResponseDTO(0L, 0L, 0L, 0L, 0L);
         }
     }
 
@@ -131,12 +163,12 @@ public class DashboardService {
     // 위젯 5: Top 10 도메인
     // ============================================
 
-    private List<TopDomainDTO> getTopDomains(Long startTimeUnix, Long endTimeUnix) {
+    public List<TopDomainResponseDTO> getTopDomains(Long startTimeUnix, Long endTimeUnix) {
         List<Map<String, Object>> results = repository.getTopDomains(startTimeUnix, endTimeUnix);
-        List<TopDomainDTO> domains = new ArrayList<>();
+        List<TopDomainResponseDTO> domains = new ArrayList<>();
 
         for (Map<String, Object> row : results) {
-            domains.add(new TopDomainDTO(
+            domains.add(new TopDomainResponseDTO(
                     (String) row.get("domain"),
                     getLong(row, "request_count"),
                     getLong(row, "traffic_volume"),
@@ -151,11 +183,11 @@ public class DashboardService {
     // 위젯 6: 응답시간 통계
     // ============================================
 
-    private ResponseTimeDTO getResponseTimeStats(Long startTimeUnix, Long endTimeUnix) {
+    public ResponseTimeResponseDTO getResponseTimeStats(Long startTimeUnix, Long endTimeUnix) {
         try {
             Map<String, Object> result = repository.getResponseTimeStats(startTimeUnix, endTimeUnix);
 
-            return new ResponseTimeDTO(
+            return new ResponseTimeResponseDTO(
                     getDouble(result, "min_response_time"),
                     getDouble(result, "avg_response_time"),
                     getDouble(result, "max_response_time"),
@@ -165,7 +197,7 @@ public class DashboardService {
                     getLong(result, "total_requests")
             );
         } catch (Exception e) {
-            return new ResponseTimeDTO(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0L);
+            return new ResponseTimeResponseDTO(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0L);
         }
     }
 

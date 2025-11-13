@@ -59,7 +59,8 @@ public class SecurityConfig {
         CorsConfiguration c = new CorsConfiguration();
         c.setAllowedOrigins(List.of(
                 "http://localhost:5173", // Vite
-                "http://localhost:3000"  // CRA
+                "http://localhost:3000",  // CRA
+                "https://mo-a.site" // 서버
         ));
         c.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
         c.setAllowedHeaders(List.of("Authorization","Content-Type"));
