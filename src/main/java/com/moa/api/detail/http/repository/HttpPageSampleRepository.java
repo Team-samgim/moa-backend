@@ -120,13 +120,13 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
               min(http_user_agent)                         as httpUserAgent,
               min(http_content_type)                       as httpContentType,
             
-              /* === 추가: Geo === */
+              /* 추가: Geo */
               min(country_name_req)                        as countryNameReq,
               min(country_name_res)                        as countryNameRes,
               min(continent_name_req)                      as continentNameReq,
               min(continent_name_res)                      as continentNameRes,
             
-              /* === 추가: UA 파싱 === */
+              /* UA 파싱 */
               min(user_agent_software_name)                as userAgentSoftwareName,
               min(user_agent_operating_system_name)        as userAgentOperatingSystemName,
               min(user_agent_hardware_type)                as userAgentHardwareType,
