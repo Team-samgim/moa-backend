@@ -54,4 +54,6 @@ public interface PivotRepository {
     );
 
     PivotChartResponseDTO getChart(PivotChartRequestDTO req, TimeWindow tw);
+
+    PivotHeatmapTableResponseDTO getHeatmapTable(PivotHeatmapTableRequestDTO req, TimeWindow tw);
 }
