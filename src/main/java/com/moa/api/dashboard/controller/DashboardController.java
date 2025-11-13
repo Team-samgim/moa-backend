@@ -1,7 +1,7 @@
 package com.moa.api.dashboard.controller;
 
-import com.moa.api.dashboard.dto.DashboardRequestDTO;
-import com.moa.api.dashboard.dto.DashboardResponseDTO;
+import com.moa.api.dashboard.dto.request.DashboardRequestDTO;
+import com.moa.api.dashboard.dto.response.DashboardResponseDTO;
 import com.moa.api.dashboard.service.DashboardService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -46,6 +46,7 @@ public class DashboardController {
                     default -> fromEpoch = toEpoch - 3600L;
                 }
             } else {
+                fromEpoch = toEpoch - 3600L;
                 fromEpoch = toEpoch - 3600L;
             }
         }

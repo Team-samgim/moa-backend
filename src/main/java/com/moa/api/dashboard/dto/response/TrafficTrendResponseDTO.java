@@ -1,4 +1,4 @@
-package com.moa.api.dashboard.dto;
+package com.moa.api.dashboard.dto.response;
 
 // ============================================
 // 위젯 1: 실시간 트래픽 추이
@@ -6,7 +6,7 @@ package com.moa.api.dashboard.dto;
 
 import java.sql.Timestamp;
 
-public record TrafficTrendDTO(
+public record TrafficTrendResponseDTO(
         Timestamp timestamp,
         Long requestCount,
         Long responseCount

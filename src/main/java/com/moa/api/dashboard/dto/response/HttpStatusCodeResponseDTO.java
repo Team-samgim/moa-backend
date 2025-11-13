@@ -1,10 +1,10 @@
-package com.moa.api.dashboard.dto;
+package com.moa.api.dashboard.dto.response;
 
 // ============================================
 // 위젯 4: HTTP 상태코드 분포
 // ============================================
 
-public record HttpStatusCodeDTO(
+public record HttpStatusCodeResponseDTO(
         Long successCount,        // 2xx
         Long redirectCount,       // 3xx
         Long clientErrorCount,    // 4xx
