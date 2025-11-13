@@ -3,6 +3,7 @@ package com.moa.api.dashboard.repository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -78,11 +79,55 @@ public class DashboardRepository {
         String sql = """
             WITH country_traffic AS (
                 SELECT 
+                    COALESCE(NULLIF(TRIM(country_name_req), ''), 'Unknown') AS country_name,
+                    SUM(page_pkt_len) AS traffic_volume,
+                    COUNT(*) AS request_count
+                FROM http_page_sample
+                WHERE ts_server_nsec BETWEEN ? AND ?
+                GROUP BY COALESCE(NULLIF(TRIM(country_name_req), ''), 'Unknown')
+            ),
+            total_traffic AS (
+                SELECT SUM(traffic_volume) AS total
+                FROM country_traffic
+            )
+            SELECT 
+                ct.country_name,
+                ct.traffic_volume,
+                ct.request_count,
+                ROUND(ct.traffic_volume * 100.0 / NULLIF(tt.total, 0), 1) AS percentage
+            FROM country_traffic ct
+            CROSS JOIN total_traffic tt
+            ORDER BY ct.traffic_volume DESC
+            LIMIT 10
+            """;
+
+        return jdbcTemplate.queryForList(sql, startTimeUnix, endTimeUnix);
+    }
+
+    /**
+     * ✅ 특정 국가들의 트래픽 조회 (필터링)
+     */
+    public List<Map<String, Object>> getTrafficByCountries(
+            Long startTimeUnix,
+            Long endTimeUnix,
+            List<String> countryNames) {
+
+        // IN 절을 위한 placeholder 생성
+        String placeholders = String.join(",",
+                countryNames.stream()
+                        .map(c -> "?")
+                        .toList()
+        );
+
+        String sql = """
+            WITH country_traffic AS (
+                SELECT 
                     COALESCE(country_name_req, 'Unknown') as country_name,
                     SUM(page_pkt_len) as traffic_volume,
                     COUNT(*) as request_count
                 FROM http_page_sample
                 WHERE ts_server_nsec BETWEEN ? AND ?
+                    AND COALESCE(country_name_req, 'Unknown') IN (%s)
                 GROUP BY country_name_req
             ),
             total_traffic AS (
@@ -96,10 +141,15 @@ public class DashboardRepository {
                 ROUND(ct.traffic_volume * 100.0 / NULLIF(tt.total, 0), 1) as percentage
             FROM country_traffic ct, total_traffic tt
             ORDER BY ct.traffic_volume DESC
-            LIMIT 10
-            """;
+            """.formatted(placeholders);
 
-        return jdbcTemplate.queryForList(sql, startTimeUnix, endTimeUnix);
+        // 파라미터 배열 생성
+        List<Object> params = new ArrayList<>();
+        params.add(startTimeUnix);
+        params.add(endTimeUnix);
+        params.addAll(countryNames);
+
+        return jdbcTemplate.queryForList(sql, params.toArray());
     }
 
     // ============================================
