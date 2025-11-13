@@ -68,10 +68,6 @@ public class SqlSupport {
         if ("macaddr".equalsIgnoreCase(dataType)) {
             return quoted + "::text";
         }
-
-        // 필요하면 inet, cidr 같은 것도 여기에서 추가 처리 가능
-        // if ("inet".equalsIgnoreCase(dataType)) { ... }
-
         return quoted;
     }
 
@@ -236,7 +232,4 @@ public class SqlSupport {
 
         return whereSoFar + " AND " + c + cmp + " :__cursor_val ";
     }
-
-
-
 }
