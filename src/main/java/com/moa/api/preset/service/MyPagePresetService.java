@@ -32,6 +32,25 @@ public class MyPagePresetService {
                 .build();
     }
 
+    public PresetListResponseDTO findMyPresets(Long userId,
+                                               int page,
+                                               int size,
+                                               String type,
+                                               String origin) {
+        int p = Math.max(0, page);
+        int s = Math.max(1, size);
+        List<PresetItemDTO> items = repo.findByMember(userId, type, origin, p, s);
+        long total = repo.countByMember(userId, type, origin);
+        int totalPages = (int) Math.ceil((double) total / (double) s);
+        return PresetListResponseDTO.builder()
+                .items(items)
+                .page(p)
+                .size(s)
+                .totalPages(totalPages)
+                .totalItems(total)
+                .build();
+    }
+
     @Transactional
     public PresetItemDTO setFavorite(Long userId, Integer presetId, boolean favorite) {
         int n = repo.updateFavorite(userId, presetId, favorite);
