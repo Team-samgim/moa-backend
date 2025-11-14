@@ -13,6 +13,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -108,5 +109,57 @@ public class PresetRepository {
     public int deleteOne(Long memberId, Integer presetId) {
         String sql = "DELETE FROM presets WHERE preset_id = ? AND member_id = ?";
         return jdbc.update(sql, presetId, memberId);
+    }
+
+    public List<PresetItemDTO> findByMember(Long memberId,
+                                            String type,
+                                            String origin,
+                                            int page,
+                                            int size) {
+        String sql = """
+                SELECT preset_id, preset_name, preset_type, config, favorite, created_at, updated_at
+                FROM presets
+                WHERE member_id = ?
+                """;
+
+        List<Object> params = new ArrayList<>();
+        params.add(memberId);
+
+        if (type != null && !type.isBlank()) {
+            sql += " AND preset_type = ? ";
+            params.add(type);
+        }
+        if (origin != null && !origin.isBlank()) {
+            sql += " AND preset_origin = ? ";
+            params.add(origin);
+        }
+
+        sql += " ORDER BY updated_at DESC NULLS LAST, created_at DESC ";
+        sql += " LIMIT ? OFFSET ? ";
+
+        params.add(size);
+        params.add(page * size);
+
+        return jdbc.query(sql, rowMapper, params.toArray());
+    }
+
+    public long countByMember(Long memberId,
+                              String type,
+                              String origin) {
+        String sql = "SELECT count(*) FROM presets WHERE member_id = ? ";
+
+        List<Object> params = new ArrayList<>();
+        params.add(memberId);
+
+        if (type != null && !type.isBlank()) {
+            sql += " AND preset_type = ? ";
+            params.add(type);
+        }
+        if (origin != null && !origin.isBlank()) {
+            sql += " AND preset_origin = ? ";
+            params.add(origin);
+        }
+
+        return jdbc.queryForObject(sql, Long.class, params.toArray());
     }
 }

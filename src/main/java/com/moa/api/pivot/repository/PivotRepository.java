@@ -1,59 +1,61 @@
 package com.moa.api.pivot.repository;
 
-import com.moa.api.pivot.dto.*;
+import com.moa.api.pivot.dto.request.DistinctValuesRequestDTO;
+import com.moa.api.pivot.dto.request.PivotChartRequestDTO;
+import com.moa.api.pivot.dto.request.PivotHeatmapTableRequestDTO;
+import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
+import com.moa.api.pivot.dto.response.DistinctValuesResponseDTO;
+import com.moa.api.pivot.dto.response.PivotChartResponseDTO;
+import com.moa.api.pivot.dto.response.PivotHeatmapTableResponseDTO;
+import com.moa.api.pivot.dto.response.PivotQueryResponseDTO;
 import com.moa.api.pivot.model.PivotFieldMeta;
+import com.moa.api.pivot.model.PivotLayer;
+import com.moa.api.pivot.model.PivotQueryContext;
 import com.moa.api.pivot.model.TimeWindow;
 
 import java.util.List;
 
 public interface PivotRepository {
 
-    List<PivotFieldMeta> findFieldMetaForLayer(String layer);
+    List<PivotFieldMeta> findFieldMetaForLayer(PivotLayer layer);
 
-    DistinctValuesPageDTO pageDistinctValues(DistinctValuesRequestDTO req, TimeWindow tw);
+    DistinctValuesResponseDTO pageDistinctValues(DistinctValuesRequestDTO req, TimeWindow tw);
 
     List<String> findTopColumnValues(
-            String layer,
-            String columnField,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw
+            PivotQueryContext ctx,
+            String columnField
     );
 
-    /** 화면 상단 row group 리스트 + summary만 (subRows X) */
     List<PivotQueryResponseDTO.RowGroup> buildRowGroups(
-            String layer,
+            PivotQueryContext ctx,
             List<PivotQueryRequestDTO.RowDef> rows,
             List<PivotQueryRequestDTO.ValueDef> values,
             String columnField,
-            List<String> columnValues,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw
+            List<String> columnValues
     );
 
-    /** 특정 rowField에 대한 subRows + breakdown만 */
     List<PivotQueryResponseDTO.RowGroupItem> buildRowGroupItems(
-            String layer,
+            PivotQueryContext ctx,
             String rowField,
             List<PivotQueryRequestDTO.ValueDef> values,
             String columnField,
             List<String> columnValues,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw,
             int offset,
             int limit,
             PivotQueryRequestDTO.SortDef sort
     );
 
+    // 이건 아직 ctx 안 쓰고 있어도 OK — 공통 Top-N 유틸 느낌이면 그대로 둬도 됨
     List<String> findTopNDimensionValues(
-            String layer,
-            String field,   // dimension (row/column)
+            PivotLayer layer,
+            String field,
             PivotQueryRequestDTO.TopNDef topN,
             PivotQueryRequestDTO.ValueDef metric,
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw
     );
 
-    PivotChartResponseDTO getChart(PivotChartRequestDTO req, TimeWindow tw);
+    PivotChartResponseDTO getChart(PivotQueryContext ctx, PivotChartRequestDTO req);
 
-    PivotHeatmapTableResponseDTO getHeatmapTable(PivotHeatmapTableRequestDTO req, TimeWindow tw);
+    PivotHeatmapTableResponseDTO getHeatmapTable(PivotQueryContext ctx, PivotHeatmapTableRequestDTO req);
 }

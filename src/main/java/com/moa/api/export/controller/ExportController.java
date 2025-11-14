@@ -1,7 +1,9 @@
 package com.moa.api.export.controller;
 
+import com.moa.api.export.dto.ExportChartRequestDTO;
 import com.moa.api.export.dto.ExportCreateResponseDTO;
 import com.moa.api.export.dto.ExportGridRequestDTO;
+import com.moa.api.export.service.ChartExportService;
 import com.moa.api.export.service.GridExportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ExportController {
 
     private final GridExportService gridExportService;
+    private final ChartExportService chartExportService;
 
     @PostMapping("/grid")
     public ResponseEntity<ExportCreateResponseDTO> exportGridCsv(@RequestBody ExportGridRequestDTO req) throws Exception {
@@ -25,5 +28,10 @@ public class ExportController {
         }
         ExportCreateResponseDTO res = gridExportService.exportCsv(req);
         return ResponseEntity.ok(res);
+    }
+
+    @PostMapping("/chart")
+    public ExportCreateResponseDTO exportChart(@RequestBody ExportChartRequestDTO req) throws Exception {
+        return chartExportService.exportChart(req);
     }
 }

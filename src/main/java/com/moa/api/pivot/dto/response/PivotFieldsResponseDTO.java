@@ -1,4 +1,4 @@
-package com.moa.api.pivot.dto;
+package com.moa.api.pivot.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
