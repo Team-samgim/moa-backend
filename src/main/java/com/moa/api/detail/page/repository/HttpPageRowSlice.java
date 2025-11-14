@@ -267,7 +267,7 @@ public interface HttpPageRowSlice {
     String getHttpUri();
     String getHttpUriSplit();
     String getHttpReferer();
-    Boolean getIsHttps();
+    Integer getIsHttps();  // Integer로 수정 (DB에서 0 또는 1)
 
     // ===== User Agent (6개) =====
     String getUserAgentSoftwareName();

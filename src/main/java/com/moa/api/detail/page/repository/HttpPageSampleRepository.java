@@ -1,7 +1,6 @@
 package com.moa.api.detail.page.repository;
 
 import com.moa.api.detail.page.entity.HttpPageSample;
-import com.moa.api.detail.page.repository.HttpPageRowSlice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -86,7 +85,7 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             page_rtt_ack_cnt_req,
             page_rtt_ack_cnt_res,
             
-            -- 페이지 카운트 (15개)
+            -- 페이지 카운트 (14개)
             page_req_making_cnt,
             page_http_cnt,
             page_http_cnt_req,
@@ -101,9 +100,8 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             page_tcp_cnt,
             page_tcp_cnt_req,
             page_tcp_cnt_res,
-            page_error_cnt,
             
-            -- TCP 에러 카운트 (29개)
+            -- TCP 에러 카운트 (23개) ← 29개에서 23개로 수정!
             retransmission_cnt,
             retransmission_cnt_req,
             retransmission_cnt_res,
@@ -128,12 +126,7 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             window_full_cnt,
             window_full_cnt_req,
             window_full_cnt_res,
-            tcp_error_cnt,
-            tcp_error_cnt_req,
-            tcp_error_cnt_res,
-            tcp_error_len,
-            tcp_error_len_req,
-            tcp_error_len_res,
+            -- tcp_error_cnt, tcp_error_len 제거됨 (트랜잭션 상태 섹션으로 이동)
             
             -- HTTP 메소드 (20개)
             req_method_get_cnt,
@@ -158,18 +151,18 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             req_method_oth_cnt_error,
             
             -- 응답 코드 (10개)
-            res_code_1xx_cnt,
-            res_code_2xx_cnt,
-            res_code_304_cnt,
-            res_code_3xx_cnt,
-            res_code_401_cnt,
-            res_code_403_cnt,
-            res_code_404_cnt,
-            res_code_4xx_cnt,
-            res_code_5xx_cnt,
-            res_code_oth_cnt,
+            res_code_1xx_cnt AS resCode1xxCnt,
+            res_code_2xx_cnt AS resCode2xxCnt,
+            res_code_304_cnt AS resCode304Cnt,
+            res_code_3xx_cnt AS resCode3xxCnt,
+            res_code_401_cnt AS resCode401Cnt,
+            res_code_403_cnt AS resCode403Cnt,
+            res_code_404_cnt AS resCode404Cnt,
+            res_code_4xx_cnt AS resCode4xxCnt,
+            res_code_5xx_cnt AS resCode5xxCnt,
+            res_code_oth_cnt AS resCodeOthCnt,
             
-            -- 트랜잭션 상태 (11개)
+            -- 트랜잭션 상태 (18개) ← 11개에서 18개로 수정!
             stopped_transaction_cnt,
             stopped_transaction_cnt_req,
             stopped_transaction_cnt_res,
@@ -181,6 +174,13 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             timeout_cnt_res,
             ts_page_rto_cnt_req,
             ts_page_rto_cnt_res,
+            tcp_error_cnt,
+            tcp_error_cnt_req,
+            tcp_error_cnt_res,
+            tcp_error_len,
+            tcp_error_len_req,
+            tcp_error_len_res,
+            page_error_cnt,
             
             -- Content Type (10개)
             content_type_html_cnt_req,

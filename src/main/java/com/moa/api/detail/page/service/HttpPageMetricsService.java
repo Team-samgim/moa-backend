@@ -8,10 +8,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Optional;
-
 /**
  * HTTP Page Metrics Service
  * 235개 컬럼을 계층적 DTO로 변환
@@ -73,6 +69,11 @@ public class HttpPageMetricsService {
                 nzl(r.getHttpUriCnt()),
                 nzl(r.getHttpsUriCnt()),
                 nzl(r.getPageErrorCnt()),
+
+                // 프로토콜/센서 정보 (최상위로 이동) ⭐
+                r.getNdpiProtocolApp(),
+                r.getNdpiProtocolMaster(),
+                r.getSensorDeviceName(),
 
                 // 중첩 구조
                 buildTiming(r),
@@ -162,13 +163,13 @@ public class HttpPageMetricsService {
         return new HttpPageMetricsDTO.StatusCodes(
                 nzl(r.getResCode1xxCnt()),
                 nzl(r.getResCode2xxCnt()),
-                nzl(r.getResCode3xxCnt()),
-                nzl(r.getResCode4xxCnt()),
-                nzl(r.getResCode5xxCnt()),
                 nzl(r.getResCode304Cnt()),
+                nzl(r.getResCode3xxCnt()),
                 nzl(r.getResCode401Cnt()),
                 nzl(r.getResCode403Cnt()),
                 nzl(r.getResCode404Cnt()),
+                nzl(r.getResCode4xxCnt()),
+                nzl(r.getResCode5xxCnt()),
                 nzl(r.getResCodeOthCnt())
         );
     }
@@ -366,13 +367,10 @@ public class HttpPageMetricsService {
     }
 
     /**
-     * Environment 빌드
+     * Environment 빌드 (지리 정보만)
      */
     private HttpPageMetricsDTO.Environment buildEnvironment(HttpPageRowSlice r) {
         return new HttpPageMetricsDTO.Environment(
-                r.getNdpiProtocolApp(),
-                r.getNdpiProtocolMaster(),
-                r.getSensorDeviceName(),
                 r.getCountryNameReq(),
                 r.getCountryNameRes(),
                 r.getContinentNameReq(),
