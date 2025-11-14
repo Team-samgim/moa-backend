@@ -141,7 +141,7 @@ public class GridExportService {
         Preset preset = Preset.builder()
                 .member(member)              // ★ 연관관계 세팅
                 .presetName(name)
-                .presetType(PresetType.GRID)
+                .presetType(PresetType.SEARCH)
                 .config(cfgNode)
                 .favorite(false)
                 .origin(PresetOrigin.EXPORT)

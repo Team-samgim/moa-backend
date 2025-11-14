@@ -1,72 +1,87 @@
 package com.moa.api.detail.ethernet.repository;
 
+/**
+ * Repository의 네이티브 쿼리 결과를 매핑하는 Projection 인터페이스
+ */
 public interface EthernetAgg {
-    // 식별 / 샘플 메타
-    String  getRowKey();
-    String  getFlowIdentifier();
-    Double  getTsSampleBegin();
-    Double  getTsSampleEnd();
+
+    // === 식별 / 메타 ===
+    String getRowKey();
+    String getFlowIdentifier();
+
+    // 🆕 샘플링 구간
+    Double getTsSampleBegin();
+    Double getTsSampleEnd();
+
+    // 🆕 세션 상태
     Integer getExpired();
-    String  getTsServer();
-    Long    getTsServerNsec();
     Integer getExpiredByTimeout();
 
-    // 엔드포인트
-    String  getSrcMac();
-    String  getDstMac();
-    String  getSrcIp();
-    String  getDstIp();
+    // === 엔드포인트 ===
+    String getSrcMac();
+    String getDstMac();
+    String getSrcIp();
+    String getDstIp();
     Integer getSrcPort();
     Integer getDstPort();
 
-    // 프로토콜
+    // === 프로토콜 ===
     Long getL2Proto();
     Long getL3Proto();
     Long getL4Proto();
     Long getL7proto();
     Integer getIpVersion();
-    String  getNdpiProtocolApp();
-    String  getNdpiProtocolMaster();
-    String  getSniHostname();
 
-    // 규모 (바이트/패킷) - delta 합계
+    // === 바이트 통계 ===
     Long getLenDelta();
     Long getLenReqDelta();
     Long getLenResDelta();
 
+    // === CRC 에러 바이트 ===
     Long getCrcErrorLenDelta();
     Long getCrcErrorLenReqDelta();
     Long getCrcErrorLenResDelta();
 
+    // === 프레임/패킷 통계 ===
     Long getPktsDelta();
     Long getPktsReqDelta();
     Long getPktsResDelta();
 
+    // === CRC 에러 카운트 ===
     Long getCrcErrorCntDelta();
     Long getCrcErrorCntReqDelta();
     Long getCrcErrorCntResDelta();
 
-    // 패킷 크기 통계
+    // === 패킷 길이 통계 ===
     Integer getPktLenMinReq();
     Integer getPktLenMinRes();
     Integer getPktLenMaxReq();
     Integer getPktLenMaxRes();
-    Double  getPktLenAvgReq();
-    Double  getPktLenAvgRes();
+    Double getPktLenAvgReq();
+    Double getPktLenAvgRes();
 
-    // 타임스탬프 (duration 계산용)
+    // === 타임스탬프 (전체) ===
     Double getTsFirst();
+    Double getTsLast();
+
+    // 🆕 방향별 타임스탬프 (선택사항 - 필요시 쿼리에 추가)
     Double getTsFirstReq();
     Double getTsFirstRes();
-    Double getTsLast();
     Double getTsLastReq();
     Double getTsLastRes();
 
-    // Geo / 국내 위치
+    // === nDPI / 애플리케이션 ===
+    String getNdpiProtocolApp();
+    String getNdpiProtocolMaster();
+    String getSniHostname();
+
+    // === 지리 정보 ===
     String getCountryNameReq();
     String getCountryNameRes();
     String getContinentNameReq();
     String getContinentNameRes();
+
+    // === 국내 지역 ===
     String getDomesticPrimaryNameReq();
     String getDomesticPrimaryNameRes();
     String getDomesticSub1NameReq();
@@ -74,6 +89,6 @@ public interface EthernetAgg {
     String getDomesticSub2NameReq();
     String getDomesticSub2NameRes();
 
-    // 센서 정보
+    // === 센서 ===
     String getSensorDeviceName();
 }

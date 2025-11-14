@@ -1,8 +1,8 @@
-package com.moa.api.detail.http.service;
+package com.moa.api.detail.page.service;
 
-import com.moa.api.detail.http.dto.HttpPageMetricsDTO;
-import com.moa.api.detail.http.repository.HttpPageAgg;
-import com.moa.api.detail.http.repository.HttpPageSampleRepository;
+import com.moa.api.detail.page.dto.HttpPageMetricsDTO;
+import com.moa.api.detail.page.repository.HttpPageAgg;
+import com.moa.api.detail.page.repository.HttpPageSampleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
