@@ -53,7 +53,7 @@ public class GridExportService {
     @Transactional
     public ExportCreateResponseDTO exportCsv(ExportGridRequestDTO req) throws Exception {
         final String bucket = s3Props.getS3().getBucket();
-        final String prefix = normalizePrefix(s3Props.getS3().getPrefix());
+        final String rootPrefix = normalizePrefix(s3Props.getS3().getPrefix()); // app/exports/dev/
 
         // 1) 인증 컨텍스트에서 memberId 보장
         Long memberId = resolveMemberId();                  // req 값 무시
@@ -68,8 +68,10 @@ public class GridExportService {
         final String safeBase = Optional.ofNullable(req.getFileName())
                 .map(String::trim).filter(s -> !s.isBlank())
                 .map(this::sanitizeFileBase)
-                .orElseGet(() -> "grid_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
-        final String objectKey = buildObjectKey(prefix, safeBase + ".csv");
+                .orElseGet(() -> "grid_" + LocalDateTime.now()
+                        .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+
+        final String objectKey = buildObjectKey(rootPrefix, "grid", memberId, safeBase + ".csv");
 
         // 4) CSV 생성 → 업로드
         Path tmp = Files.createTempFile("grid-export-", ".csv");
@@ -185,10 +187,21 @@ public class GridExportService {
         return cleaned.isBlank() ? "grid" : cleaned;
     }
 
-    private String buildObjectKey(String prefix, String fileName) {
+    private String buildObjectKey(String rootPrefix, String typePrefix, Long memberId, String fileName) {
         LocalDateTime now = LocalDateTime.now();
         String datePath = now.format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
-        return (prefix + datePath + "/" + UUID.randomUUID() + "/" + fileName).replace("//", "/");
+        String uuid = UUID.randomUUID().toString();
+
+        String key = String.format(
+                "%s%s/%s/%d/%s/%s",
+                rootPrefix,   // app/exports/dev/
+                typePrefix,   // grid / pivot / chart
+                datePath,     // 2025/11/14
+                memberId,     // 1, 2, ...
+                uuid,
+                fileName
+        );
+        return key.replace("//", "/");
     }
 
     private void writeCsvToFile(Path path, ExportGridRequestDTO req) throws Exception {
