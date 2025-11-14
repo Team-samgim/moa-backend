@@ -1,7 +1,7 @@
 package com.moa.api.pivot.controller;
 
-import com.moa.api.pivot.dto.*;
-import com.moa.api.pivot.model.TimeWindow;
+import com.moa.api.pivot.dto.request.*;
+import com.moa.api.pivot.dto.response.*;
 import com.moa.api.pivot.service.PivotService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -27,7 +27,7 @@ public class PivotController {
 
     /** 필터 팝업용 값 목록 (무한 스크롤 + 검색) */
     @PostMapping("/values")
-    public DistinctValuesPageDTO values(@RequestBody DistinctValuesRequestDTO req) {
+    public DistinctValuesResponseDTO values(@RequestBody DistinctValuesRequestDTO req) {
         return pivotService.getDistinctValuesPage(req);
     }
 

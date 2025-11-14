@@ -1,50 +1,57 @@
 package com.moa.api.pivot.repository;
 
-import com.moa.api.pivot.dto.*;
+import com.moa.api.pivot.dto.request.DistinctValuesRequestDTO;
+import com.moa.api.pivot.dto.request.PivotChartRequestDTO;
+import com.moa.api.pivot.dto.request.PivotHeatmapTableRequestDTO;
+import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
+import com.moa.api.pivot.dto.response.DistinctValuesResponseDTO;
+import com.moa.api.pivot.dto.response.PivotChartResponseDTO;
+import com.moa.api.pivot.dto.response.PivotHeatmapTableResponseDTO;
+import com.moa.api.pivot.dto.response.PivotQueryResponseDTO;
 import com.moa.api.pivot.exception.BadRequestException;
 import com.moa.api.pivot.model.PivotFieldMeta;
+import com.moa.api.pivot.model.PivotLayer;
+import com.moa.api.pivot.model.PivotQueryContext;
 import com.moa.api.pivot.model.TimeWindow;
-import com.moa.api.pivot.util.CursorCodec;
-import com.moa.api.pivot.util.ValueUtils;
+import com.moa.api.pivot.util.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Repository
 @RequiredArgsConstructor
 public class PivotRepositoryImpl implements PivotRepository {
+
     private final NamedParameterJdbcTemplate jdbc;
     private final SqlSupport sql;
+    private final PivotQueryBuilder pivotQueryBuilder;
+    private final PivotChartQueryBuilder chartQueryBuilder;
+    private final PivotHeatmapQueryBuilder heatmapQueryBuilder;
+    private final PivotRowQueryBuilder rowQueryBuilder;
 
-    private String resolveTable(String layer) {
-        return switch (layer) {
-            case "HTTP_PAGE" -> "http_page_sample";
-            case "Ethernet"  -> "ethernet_sample";
-            case "TCP"       -> "tcp_sample";
-            case "HTTP_URI"  -> "http_uri_sample";
-            default -> throw new IllegalArgumentException("Unsupported layer: " + layer);
-        };
-    }
+    private static final int HEATMAP_TABLE_MAX_X = 50;
+    private static final int DEFAULT_PAGE_LIMIT = 100;
+
+    // ===========================
+    // 1) 필드 메타 조회
+    // ===========================
 
     @Override
-    public List<PivotFieldMeta> findFieldMetaForLayer(String layer) {
-        String tableName = resolveFieldsTable(layer); // *_fields 테이블
+    public List<PivotFieldMeta> findFieldMetaForLayer(PivotLayer layer) {
+        String tableName = layer.getFieldsTable();
 
-        String sql = """
-        SELECT field_key, data_type, label_ko
-        FROM %s
-        ORDER BY field_key
-        """.formatted(tableName);
+        String text = """
+            SELECT field_key, data_type, label_ko
+            FROM %s
+            ORDER BY field_key
+            """.formatted(tableName);
 
-        // tableName은 우리가 switch로 화이트리스트 관리하니까 문자열 붙여도 괜찮아
         return jdbc.query(
-                sql,
+                text,
                 (rs, i) -> new PivotFieldMeta(
                         rs.getString("field_key"),
                         rs.getString("data_type"),
@@ -53,204 +60,349 @@ public class PivotRepositoryImpl implements PivotRepository {
         );
     }
 
-    private String resolveFieldsTable(String layer) {
-        return switch (layer) {
-            case "HTTP_PAGE" -> "http_page_fields";
-            case "Ethernet"  -> "ethernet_fields";
-            case "TCP"       -> "tcp_fields";
-            case "HTTP_URI"  -> "http_uri_fields";
-            default -> throw new IllegalArgumentException("Unsupported layer: " + layer);
-        };
-    }
-
-    /* ========= 1) 필드 값 페이지네이션 ========= */
+    // ===========================
+    // 2) Distinct Values 페이징
+    // ===========================
 
     @Override
-    public DistinctValuesPageDTO pageDistinctValues(DistinctValuesRequestDTO req, TimeWindow tw) {
-        String table = sql.table(req.getLayer());
-        String col   = sql.col(req.getLayer(), req.getField());
+    public DistinctValuesResponseDTO pageDistinctValues(DistinctValuesRequestDTO req, TimeWindow tw) {
+        int limit = Math.min(req.getLimit() != null ? req.getLimit() : 50, 200);
 
-        MapSqlParameterSource ps = new MapSqlParameterSource();
+        // COUNT 쿼리
+        var countQuery = pivotQueryBuilder.buildDistinctValuesCountSql(
+                createContext(req.getLayer(), tw, req.getFilters(), req.getTime()),
+                req
+        );
+        Integer totalCount = jdbc.queryForObject(countQuery.getSql(), countQuery.getParams(), Integer.class);
 
-        // 기본 시간 컬럼: ts_server_nsec
-        String timeField = "ts_server_nsec";
-        if (req.getTime() != null && req.getTime().getField() != null &&
-                !req.getTime().getField().isBlank()) {
-            timeField = req.getTime().getField();
-        }
+        // 페이지 쿼리
+        var pageQuery = pivotQueryBuilder.buildDistinctValuesPageSql(
+                createContext(req.getLayer(), tw, req.getFilters(), req.getTime()),
+                req,
+                limit
+        );
 
-        String where = sql.where(req.getLayer(), timeField, tw, req.getFilters(), ps);
-
-        // 검색어
-        if (req.getKeyword() != null && !req.getKeyword().isBlank()) {
-            where += " AND " + col + " ILIKE :kw ";
-            ps.addValue("kw", "%" + req.getKeyword() + "%");
-        }
-
-        String whereForCount = where;  // 커서 없음
-        String whereForPage  = where;  // 커서 들어감
-
-        // 커서 조건 (페이지 조회용에만 적용)
-        if (req.getCursor() != null && !req.getCursor().isBlank()) {
-            whereForPage = sql.appendCursorCondition(
-                    req.getLayer(),
-                    req.getField(),
-                    req.getOrder(),
-                    whereForPage,
-                    req.getCursor(),
-                    ps
-            );
-        }
-
-        String ord = "DESC".equalsIgnoreCase(req.getOrder()) ? "DESC" : "ASC";
-        int limit  = Math.min(req.getLimit() != null ? req.getLimit() : 50, 200);
-
-        String countSql = """
-            SELECT COUNT(DISTINCT %s)
-            FROM %s
-            %s
-        """.formatted(col, table, whereForCount);
-
-        Integer totalCount = jdbc.queryForObject(countSql, ps, Integer.class);
-
-        String text = """
-            SELECT DISTINCT %s AS val
-            FROM %s
-            %s
-            ORDER BY %s %s NULLS LAST
-            LIMIT :lim
-        """.formatted(col, table, whereForPage, col, ord);
-        ps.addValue("lim", limit);
-
-        List<String> items = jdbc.query(text, ps, (rs, i) -> {
+        List<String> items = jdbc.query(pageQuery.getSql(), pageQuery.getParams(), (rs, i) -> {
             String v = rs.getString("val");
             return (v == null || v.isBlank()) ? "(empty)" : v;
         });
 
-        boolean hasMore   = items.size() == limit;
+        boolean hasMore = items.size() == limit;
         String nextCursor = hasMore ? CursorCodec.encode(items.get(items.size() - 1)) : null;
 
-        return new DistinctValuesPageDTO(items, nextCursor, hasMore, totalCount);
+        return new DistinctValuesResponseDTO(items, nextCursor, hasMore, totalCount);
     }
 
-    /* ========= 2) Column 축 상위 값 ========= */
+    // ===========================
+    // 3) Column 축 상위 값
+    // ===========================
 
     @Override
-    public List<String> findTopColumnValues(
-            String layer,
+    public List<String> findTopColumnValues(PivotQueryContext ctx, String columnField) {
+        var query = pivotQueryBuilder.buildTopColumnValuesSql(ctx, columnField);
+        return jdbc.query(query.getSql(), query.getParams(), (rs, i) -> rs.getString("col_val"));
+    }
+
+    // ===========================
+    // 4) RowGroup 빌드
+    // ===========================
+
+    @Override
+    public List<PivotQueryResponseDTO.RowGroup> buildRowGroups(
+            PivotQueryContext ctx,
+            List<PivotQueryRequestDTO.RowDef> rows,
+            List<PivotQueryRequestDTO.ValueDef> values,
             String columnField,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw
+            List<String> columnValues
     ) {
-        String table = sql.table(layer);
-        String col   = sql.col(layer, columnField);
+        List<PivotQueryResponseDTO.RowGroup> groups = new ArrayList<>();
 
-        MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
+        boolean hasColumn = columnField != null && !columnField.isBlank()
+                && columnValues != null && !columnValues.isEmpty();
+        boolean hasMetrics = values != null && !values.isEmpty();
 
-        String text = """
-            SELECT %s AS col_val, COUNT(*) AS cnt
-            FROM %s
-            %s
-            GROUP BY %s
-            ORDER BY cnt DESC, %s ASC
-        """.formatted(col, table, where, col, col);
+        Map<String, Map<String, Object>> summaryCells = new LinkedHashMap<>();
+        if (hasColumn && hasMetrics) {
+            summaryCells = fetchSummaryByColumn(ctx, columnField, columnValues, values);
+        }
 
-        return jdbc.query(text, ps, (rs, i) -> rs.getString("col_val"));
+        for (PivotQueryRequestDTO.RowDef rowDef : rows) {
+            String rowField = rowDef.getField();
+            List<String> rowVals = fetchDistinctRowValues(ctx, rowField);
+            int distinctCount = rowVals.size();
+
+            groups.add(
+                    PivotQueryResponseDTO.RowGroup.builder()
+                            .rowLabel(rowField)
+                            .displayLabel(rowField + " (" + distinctCount + ")")
+                            .rowInfo(PivotQueryResponseDTO.RowInfo.builder()
+                                    .count(distinctCount)
+                                    .build())
+                            .cells(summaryCells)
+                            .items(List.of())
+                            .build()
+            );
+        }
+
+        return groups;
     }
 
-    /* ========= 3) Row distinct 값 ========= */
+    // ===========================
+    // 5) RowGroupItem 빌드
+    // ===========================
 
-    public List<String> fetchDistinctRowValues(
-            String layer,
+    @Override
+    public List<PivotQueryResponseDTO.RowGroupItem> buildRowGroupItems(
+            PivotQueryContext ctx,
             String rowField,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw
-    ) {
-        String table = sql.table(layer);
-        String col = sql.col(layer, rowField);
-
-        MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
-
-        String text = """
-        SELECT DISTINCT %s AS val
-        FROM %s
-        %s
-        ORDER BY %s ASC
-    """.formatted(col, table, where, col);
-
-        return jdbc.query(text, ps, (rs, i) -> rs.getString("val"));
-    }
-
-    public List<String> fetchDistinctRowValues(
-            String layer,
-            String rowField,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw,
-            int offset,
-            int limit
-    ) {
-        String table = sql.table(layer);
-        String col = sql.col(layer, rowField);
-
-        MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
-
-        String text = """
-        SELECT DISTINCT %s AS val
-        FROM %s
-        %s
-        ORDER BY %s ASC
-        LIMIT :limit OFFSET :offset
-    """.formatted(col, table, where, col);
-
-        ps.addValue("limit", limit);
-        ps.addValue("offset", offset);
-
-//        return jdbc.query(text, ps, (rs, i) -> rs.getString("val"));
-        log.info("=== fetchDistinctRowValues ===");
-        log.info("SQL: {}", text);
-        log.info("offset: {}, limit: {}", offset, limit);
-
-        List<String> result = jdbc.query(text, ps, (rs, i) -> rs.getString("val"));
-
-        log.info("Returned {} rows", result.size());
-
-        return result;
-    }
-
-    /* ========= 4) Column별 요약 ========= */
-
-    private Map<String, Map<String, Object>> fetchSummaryByColumn(
-            String layer,
+            List<PivotQueryRequestDTO.ValueDef> values,
             String columnField,
             List<String> columnValues,
-            List<PivotQueryRequestDTO.ValueDef> metrics,
+            int offset,
+            int limit,
+            PivotQueryRequestDTO.SortDef sort
+    ) {
+        boolean hasColumn = columnField != null && !columnField.isBlank()
+                && columnValues != null && !columnValues.isEmpty();
+        boolean hasMetrics = values != null && !values.isEmpty();
+
+        Map<String, Map<String, Map<String, Object>>> breakdown = new LinkedHashMap<>();
+        if (hasColumn && hasMetrics) {
+            breakdown = fetchBreakdownByRowAndColumn(ctx, rowField, columnField, values);
+        }
+
+        boolean hasSort = sort != null && sort.getDirection() != null
+                && sort.getValueField() != null && sort.getAgg() != null
+                && sort.getColumnValue() != null && hasColumn && hasMetrics;
+
+        // 정렬 없음 → 단순 페이징
+        if (!hasSort) {
+            return buildSimplePagedItems(ctx, rowField, columnValues, offset, limit, breakdown, hasColumn, hasMetrics);
+        }
+
+        // 정렬 있음 → 전체 로드 후 정렬
+        return buildSortedPagedItems(ctx, rowField, values, columnValues, offset, limit, sort, breakdown, hasColumn, hasMetrics);
+    }
+
+    // ===========================
+    // 6) TopN dimension 값 조회
+    // ===========================
+
+    @Override
+    public List<String> findTopNDimensionValues(
+            PivotLayer layer,
+            String field,
+            PivotQueryRequestDTO.TopNDef topN,
+            PivotQueryRequestDTO.ValueDef metric,
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw
     ) {
-        String table = sql.table(layer);
-        String col   = sql.col(layer, columnField);
+        if (topN == null || metric == null) {
+            return List.of();
+        }
 
-        String aggSelect = metrics.stream()
-                .map(m -> m.getAgg().toUpperCase() + "(" + sql.col(layer, m.getField()) + ") AS \"" + m.getAlias() + "\"")
-                .collect(Collectors.joining(", "));
+        String layerCode = layer.getCode();
+        String table = sql.table(layerCode);
+        String dimCol = sql.col(layerCode, field);
+        String metricCol = sql.col(layerCode, metric.getField());
 
-        MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
+        String aggFunc = metric.getAgg() != null ? metric.getAgg().toUpperCase() : "SUM";
+        String orderDir = "bottom".equalsIgnoreCase(topN.getMode()) ? "ASC" : "DESC";
+        int limit = (topN.getN() != null && topN.getN() > 0) ? topN.getN() : 5;
+
+        var ps = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource();
+        String where = sql.where(layerCode, layer.getDefaultTimeField(), tw, filters, ps);
 
         String text = """
-            SELECT %s AS col_val,
-                   %s
+            SELECT %s AS dim_val,
+                   %s(%s) AS metric_val
             FROM %s
             %s
             GROUP BY %s
-        """.formatted(col, aggSelect, table, where, col);
+            ORDER BY metric_val %s
+            LIMIT :lim
+            """.formatted(dimCol, aggFunc, metricCol, table, where, dimCol, orderDir);
 
+        ps.addValue("lim", limit);
+
+        return jdbc.query(text, ps, (rs, i) -> rs.getString("dim_val"));
+    }
+
+    // ===========================
+    // 7) 차트
+    // ===========================
+
+    @Override
+    public PivotChartResponseDTO getChart(PivotQueryContext ctx, PivotChartRequestDTO req) {
+        PivotLayer layer = ctx.getLayer();
+        if (layer == null) {
+            throw new BadRequestException("layer is required");
+        }
+
+        PivotChartRequestDTO.AxisDef colDef = req.getCol();
+        PivotChartRequestDTO.AxisDef rowDef = req.getRow();
+        PivotQueryRequestDTO.ValueDef metricDef = req.getMetric();
+
+        validateChartRequest(colDef, rowDef, metricDef);
+
+        List<PivotQueryRequestDTO.FilterDef> baseFilters =
+                req.getFilters() != null ? new ArrayList<>(req.getFilters()) : new ArrayList<>();
+
+        boolean isMultiplePie = "multiplePie".equalsIgnoreCase(req.getChartType());
+        int maxColCount = isMultiplePie ? 6 : 5;
+        int maxRowCount = 5;
+
+        // X, Y 축 카테고리 결정
+        List<String> xCategories = resolveAxisKeys(ctx, colDef, metricDef, baseFilters, maxColCount);
+        List<String> yCategories = resolveAxisKeys(ctx, rowDef, metricDef, baseFilters, maxRowCount);
+
+        if (xCategories.isEmpty() || yCategories.isEmpty()) {
+            return PivotChartResponseDTO.empty(colDef.getField(), rowDef.getField());
+        }
+
+        // 데이터 조회
+        var query = chartQueryBuilder.buildChartDataQuery(
+                ctx, colDef.getField(), rowDef.getField(), metricDef,
+                xCategories, yCategories, baseFilters
+        );
+
+        Map<String, Map<String, Double>> valueMap = new HashMap<>();
+        jdbc.query(query.sql(), query.params(), rs -> {
+            String xKey = ValueUtils.normalizeKey(rs.getString("c"));
+            String yKey = ValueUtils.normalizeKey(rs.getString("r"));
+            double v = rs.getDouble("m");
+            if (rs.wasNull()) v = 0.0;
+
+            valueMap.computeIfAbsent(yKey, k -> new HashMap<>()).put(xKey, v);
+        });
+
+        // 매트릭스 생성
+        List<List<Double>> valuesMatrix = buildValuesMatrix(xCategories, yCategories, valueMap);
+
+        // SeriesDef 생성
+        PivotChartResponseDTO.SeriesDef seriesDef = buildSeriesDef(metricDef, valuesMatrix);
+
+        return PivotChartResponseDTO.builder()
+                .xField(colDef.getField())
+                .yField(rowDef.getField())
+                .xCategories(xCategories)
+                .yCategories(yCategories)
+                .series(Collections.singletonList(seriesDef))
+                .build();
+    }
+
+    // ===========================
+    // 8) Heatmap Table
+    // ===========================
+
+    @Override
+    public PivotHeatmapTableResponseDTO getHeatmapTable(PivotQueryContext ctx, PivotHeatmapTableRequestDTO req) {
+        PivotLayer layer = ctx.getLayer();
+        String colField = req.getColField();
+        String rowField = req.getRowField();
+        PivotQueryRequestDTO.ValueDef metric = req.getMetric();
+
+        validateHeatmapRequest(colField, rowField, metric);
+
+        int offset = getOffset(req);
+        int limit = getLimit(req);
+
+        // 1) X축 카테고리
+        List<String> xCategories = fetchXCategories(ctx, colField, metric);
+        if (xCategories.isEmpty()) {
+            return PivotHeatmapTableResponseDTO.empty(colField, rowField);
+        }
+
+        // 2) Y축 전체 수
+        long totalRowCount = fetchYTotalCount(ctx, rowField);
+        if (totalRowCount == 0L) {
+            return PivotHeatmapTableResponseDTO.empty(colField, rowField);
+        }
+
+        // 3) Y축 페이지
+        List<String> yCategories = fetchYCategoriesPage(ctx, rowField, metric, offset, limit);
+        if (yCategories.isEmpty()) {
+            return PivotHeatmapTableResponseDTO.empty(colField, rowField);
+        }
+
+        // 4) 셀 값 조회
+        var cellResult = fetchCellValues(ctx, colField, rowField, metric, xCategories, yCategories);
+
+        List<PivotHeatmapTableResponseDTO.RowDef> rows = new ArrayList<>();
+        for (int yi = 0; yi < yCategories.size(); yi++) {
+            rows.add(
+                    PivotHeatmapTableResponseDTO.RowDef.builder()
+                            .yCategory(yCategories.get(yi))
+                            .cells(cellResult.values().get(yi))
+                            .rowTotal(cellResult.rowTotals().get(yi))
+                            .build()
+            );
+        }
+
+        return PivotHeatmapTableResponseDTO.builder()
+                .xField(colField)
+                .yField(rowField)
+                .xCategories(xCategories)
+                .rows(rows)
+                .totalRowCount(totalRowCount)
+                .offset(offset)
+                .limit(limit)
+                .pageMin(cellResult.pageMin())
+                .pageMax(cellResult.pageMax())
+                .build();
+    }
+
+    // ===========================
+    // Private Helper Methods
+    // ===========================
+
+    private PivotQueryContext createContext(
+            String layerCode,
+            TimeWindow tw,
+            List<PivotQueryRequestDTO.FilterDef> filters,
+            PivotQueryRequestDTO.TimeDef timeDef
+    ) {
+        // 1) 레이어 매핑
+        PivotLayer layer = PivotLayer.from(layerCode);
+
+        // 2) 시간 컬럼 결정 (요청에 field 있으면 그거, 없으면 레이어 기본값)
+        String timeField = null;
+        if (timeDef != null && timeDef.getField() != null && !timeDef.getField().isBlank()) {
+            timeField = timeDef.getField();
+        } else {
+            timeField = layer.getDefaultTimeField(); // 예: ts_server_nsec 같은 기본값
+        }
+
+        // 3) PivotQueryContext 생성
+        return new PivotQueryContext(
+                layer,
+                timeField,
+                tw,
+                filters,
+                sql       // 기존 SqlSupport
+        );
+    }
+
+    private List<String> fetchDistinctRowValues(PivotQueryContext ctx, String rowField) {
+        var query = rowQueryBuilder.buildDistinctRowValuesQuery(ctx, rowField);
+        return jdbc.query(query.sql(), query.params(), (rs, i) -> rs.getString("val"));
+    }
+
+    private List<String> fetchDistinctRowValues(PivotQueryContext ctx, String rowField, int offset, int limit) {
+        var query = rowQueryBuilder.buildDistinctRowValuesPageQuery(ctx, rowField, offset, limit);
+        return jdbc.query(query.sql(), query.params(), (rs, i) -> rs.getString("val"));
+    }
+
+    private Map<String, Map<String, Object>> fetchSummaryByColumn(
+            PivotQueryContext ctx,
+            String columnField,
+            List<String> columnValues,
+            List<PivotQueryRequestDTO.ValueDef> metrics
+    ) {
+        var query = rowQueryBuilder.buildSummaryByColumnQuery(ctx, columnField, metrics);
         Map<String, Map<String, Object>> result = new LinkedHashMap<>();
 
-        jdbc.query(text, ps, rs -> {
+        jdbc.query(query.sql(), query.params(), rs -> {
             String colVal = rs.getString("col_val");
             if (colVal == null || !columnValues.contains(colVal)) return;
 
@@ -261,7 +413,6 @@ public class PivotRepositoryImpl implements PivotRepository {
             result.put(colVal, metricMap);
         });
 
-        // 빠진 컬럼 보강
         for (String v : columnValues) {
             result.putIfAbsent(v, new LinkedHashMap<>());
         }
@@ -269,39 +420,16 @@ public class PivotRepositoryImpl implements PivotRepository {
         return result;
     }
 
-    /* ========= 5) Row x Column breakdown ========= */
-
     private Map<String, Map<String, Map<String, Object>>> fetchBreakdownByRowAndColumn(
-            String layer,
+            PivotQueryContext ctx,
             String rowField,
             String columnField,
-            List<PivotQueryRequestDTO.ValueDef> metrics,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw
+            List<PivotQueryRequestDTO.ValueDef> metrics
     ) {
-        String table = sql.table(layer);
-        String row   = sql.col(layer, rowField);
-        String col   = sql.col(layer, columnField);
-
-        String aggSelect = metrics.stream()
-                .map(m -> m.getAgg().toUpperCase() + "(" + sql.col(layer, m.getField()) + ") AS \"" + m.getAlias() + "\"")
-                .collect(Collectors.joining(", "));
-
-        MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
-
-        String text = """
-            SELECT %s AS row_val,
-                   %s AS col_val,
-                   %s
-            FROM %s
-            %s
-            GROUP BY %s, %s
-        """.formatted(row, col, aggSelect, table, where, row, col);
-
+        var query = rowQueryBuilder.buildBreakdownQuery(ctx, rowField, columnField, metrics);
         Map<String, Map<String, Map<String, Object>>> tmp = new LinkedHashMap<>();
 
-        jdbc.query(text, ps, rs -> {
+        jdbc.query(query.sql(), query.params(), rs -> {
             String rv = rs.getString("row_val");
             String cv = rs.getString("col_val");
 
@@ -310,194 +438,67 @@ public class PivotRepositoryImpl implements PivotRepository {
                 metricMap.put(m.getAlias(), rs.getObject(m.getAlias()));
             }
 
-            tmp.computeIfAbsent(rv, k -> new LinkedHashMap<>())
-                    .put(cv, metricMap);
+            tmp.computeIfAbsent(rv, k -> new LinkedHashMap<>()).put(cv, metricMap);
         });
 
         return tmp;
     }
 
-    /* ========= 6) RowGroup 빌드 ========= */
-
-    @Override
-    public List<PivotQueryResponseDTO.RowGroup> buildRowGroups(
-            String layer,
-            List<PivotQueryRequestDTO.RowDef> rows,
-            List<PivotQueryRequestDTO.ValueDef> values,
-            String columnField,
+    private List<PivotQueryResponseDTO.RowGroupItem> buildSimplePagedItems(
+            PivotQueryContext ctx,
+            String rowField,
             List<String> columnValues,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw
+            int offset,
+            int limit,
+            Map<String, Map<String, Map<String, Object>>> breakdown,
+            boolean hasColumn,
+            boolean hasMetrics
     ) {
-        List<PivotQueryResponseDTO.RowGroup> groups = new ArrayList<>();
+        List<String> rowVals = fetchDistinctRowValues(ctx, rowField, offset, limit);
+        List<PivotQueryResponseDTO.RowGroupItem> items = new ArrayList<>();
 
-        boolean hasColumn = columnField != null && !columnField.isBlank()
-                && columnValues != null && !columnValues.isEmpty();
-        boolean hasMetrics = values != null && !values.isEmpty();
+        for (String rv : rowVals) {
+            Map<String, Map<String, Object>> childCells = new LinkedHashMap<>();
 
-        // 1) 컬럼 요약 == 공통: 1번 계산
-        Map<String, Map<String, Object>> summaryCells = new LinkedHashMap<>();
-        if (hasColumn && hasMetrics) {
-            summaryCells =
-                    fetchSummaryByColumn(layer, columnField, columnValues, values, filters, tw);
-        }
+            if (hasColumn && hasMetrics) {
+                Map<String, Map<String, Object>> byCol = breakdown.getOrDefault(rv, Map.of());
+                for (String cv : columnValues) {
+                    childCells.put(cv, byCol.getOrDefault(cv, Map.of()));
+                }
+            }
 
-        // 2) 각 row group: distinct 값 + 개수 계산
-        for (PivotQueryRequestDTO.RowDef rowDef : rows) {
-            String rowField = rowDef.getField();
-
-            // 해당 필드의 distinct 값들
-            List<String> rowVals = fetchDistinctRowValues(layer, rowField, filters, tw);
-            int distinctCount = rowVals.size();
-
-            groups.add(
-                    PivotQueryResponseDTO.RowGroup.builder()
-                            .rowLabel(rowField)
-                            .displayLabel(rowField + " (" + distinctCount + ")")
-                            .rowInfo(PivotQueryResponseDTO.RowInfo.builder()
-                                    .count(distinctCount)
-                                    .build())
-                            .cells(summaryCells)    // 모든 row group이 공유
-                            .items(List.of())       // subRows 계산 X
+            items.add(
+                    PivotQueryResponseDTO.RowGroupItem.builder()
+                            .valueLabel(rv)
+                            .displayLabel(rv)
+                            .cells(childCells)
                             .build()
             );
         }
 
-        return groups;
+        return items;
     }
 
-
-    @Override
-    public List<PivotQueryResponseDTO.RowGroupItem> buildRowGroupItems(
-            String layer,
+    private List<PivotQueryResponseDTO.RowGroupItem> buildSortedPagedItems(
+            PivotQueryContext ctx,
             String rowField,
             List<PivotQueryRequestDTO.ValueDef> values,
-            String columnField,
             List<String> columnValues,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw,
             int offset,
             int limit,
-            PivotQueryRequestDTO.SortDef sort
+            PivotQueryRequestDTO.SortDef sort,
+            Map<String, Map<String, Map<String, Object>>> breakdown,
+            boolean hasColumn,
+            boolean hasMetrics
     ) {
-        boolean hasColumn = columnField != null && !columnField.isBlank()
-                && columnValues != null && !columnValues.isEmpty();
-        boolean hasMetrics = values != null && !values.isEmpty();
+        List<String> allRowVals = fetchDistinctRowValues(ctx, rowField);
 
-        // 🔹 공통: breakdown( row → column → metric ) 은 한 번 계산
-        Map<String, Map<String, Map<String, Object>>> breakdown = new LinkedHashMap<>();
-
-        if (hasColumn && hasMetrics) {
-            breakdown =
-                    fetchBreakdownByRowAndColumn(layer, rowField, columnField, values, filters, tw);
+        String sortAlias = findSortAlias(values, sort);
+        if (sortAlias == null) {
+            return buildSimplePagedItems(ctx, rowField, columnValues, offset, limit, breakdown, hasColumn, hasMetrics);
         }
 
-        final Map<String, Map<String, Map<String, Object>>> breakdownFinal = breakdown;
-
-        boolean hasSort =
-                sort != null &&
-                        sort.getDirection() != null &&
-                        sort.getValueField() != null &&
-                        sort.getAgg() != null &&
-                        sort.getColumnValue() != null &&
-                        hasColumn &&
-                        hasMetrics;
-
-        if (!hasSort) {
-            List<String> rowVals =
-                    fetchDistinctRowValues(layer, rowField, filters, tw, offset, limit);
-
-            List<PivotQueryResponseDTO.RowGroupItem> items = new ArrayList<>();
-            for (String rv : rowVals) {
-                Map<String, Map<String, Object>> childCells = new LinkedHashMap<>();
-
-                if (hasColumn && hasMetrics) {
-                    Map<String, Map<String, Object>> byCol = breakdown.getOrDefault(rv, Map.of());
-                    for (String cv : columnValues) {
-                        childCells.put(cv, byCol.getOrDefault(cv, Map.of()));
-                    }
-                }
-
-                items.add(
-                        PivotQueryResponseDTO.RowGroupItem.builder()
-                                .valueLabel(rv)
-                                .displayLabel(rv)
-                                .cells(childCells)
-                                .build()
-                );
-            }
-
-            return items;
-        }
-
-        List<String> allRowVals = fetchDistinctRowValues(layer, rowField, filters, tw);
-
-        String sortAlias = null;
-        if (values != null) {
-            for (PivotQueryRequestDTO.ValueDef v : values) {
-                if (sort.getValueField().equals(v.getField())
-                        && sort.getAgg().equalsIgnoreCase(v.getAgg())) {
-                    sortAlias = v.getAlias();
-                    break;
-                }
-            }
-        }
-
-        final String sortAliasFinal = sortAlias;
-        final String sortColumnValue = sort.getColumnValue();
-        final String direction = sort.getDirection();
-
-        if (sortAliasFinal == null) {
-            return buildRowGroupItems(
-                    layer,
-                    rowField,
-                    values,
-                    columnField,
-                    columnValues,
-                    filters,
-                    tw,
-                    offset,
-                    limit,
-                    null    // 재귀: sort 없는 버전으로
-            );
-        }
-
-        // 2-3) 정렬
-        allRowVals.sort((rv1, rv2) -> {
-            Map<String, Map<String, Object>> byCol1 =
-                    breakdownFinal.getOrDefault(rv1, Collections.emptyMap());
-            Map<String, Map<String, Object>> byCol2 =
-                    breakdownFinal.getOrDefault(rv2, Collections.emptyMap());
-
-            Map<String, Object> metrics1 =
-                    byCol1.getOrDefault(sortColumnValue, Collections.emptyMap());
-            Map<String, Object> metrics2 =
-                    byCol2.getOrDefault(sortColumnValue, Collections.emptyMap());
-
-            Object o1 = metrics1.get(sortAliasFinal);
-            Object o2 = metrics2.get(sortAliasFinal);
-
-            double d1 = (o1 instanceof Number) ? ((Number) o1).doubleValue() : Double.NaN;
-            double d2 = (o2 instanceof Number) ? ((Number) o2).doubleValue() : Double.NaN;
-
-            // NaN (값 없음)은 항상 뒤로 보내기
-            if (Double.isNaN(d1) && Double.isNaN(d2)) return 0;
-            if (Double.isNaN(d1)) return 1;
-            if (Double.isNaN(d2)) return -1;
-
-            int cmp = Double.compare(d1, d2);
-            if ("desc".equalsIgnoreCase(direction)) {
-                cmp = -cmp;
-            }
-
-            if (cmp != 0) return cmp;
-
-            // tie-breaker: row 값 알파벳 순
-            if (rv1 == null && rv2 == null) return 0;
-            if (rv1 == null) return 1;
-            if (rv2 == null) return -1;
-            return rv1.compareTo(rv2);
-        });
+        allRowVals.sort(new RowValueComparator(breakdown, sort.getColumnValue(), sortAlias, sort.getDirection()));
 
         int fromIdx = Math.max(0, offset);
         int toIdx = Math.min(allRowVals.size(), offset + limit);
@@ -506,9 +507,8 @@ public class PivotRepositoryImpl implements PivotRepository {
         }
 
         List<String> pageRowVals = allRowVals.subList(fromIdx, toIdx);
-
-        // 2-5) pageRowVals 기준으로 RowGroupItem 빌드
         List<PivotQueryResponseDTO.RowGroupItem> items = new ArrayList<>();
+
         for (String rv : pageRowVals) {
             Map<String, Map<String, Object>> childCells = new LinkedHashMap<>();
 
@@ -531,65 +531,23 @@ public class PivotRepositoryImpl implements PivotRepository {
         return items;
     }
 
-    @Override
-    public List<String> findTopNDimensionValues(
-            String layer,
-            String field,
-            PivotQueryRequestDTO.TopNDef topN,
-            PivotQueryRequestDTO.ValueDef metric,
-            List<PivotQueryRequestDTO.FilterDef> filters,
-            TimeWindow tw
-    ) {
-        if (topN == null || metric == null) {
-            return List.of();
+    private String findSortAlias(List<PivotQueryRequestDTO.ValueDef> values, PivotQueryRequestDTO.SortDef sort) {
+        if (values == null) return null;
+        for (PivotQueryRequestDTO.ValueDef v : values) {
+            if (sort.getValueField().equals(v.getField())
+                    && sort.getAgg().equalsIgnoreCase(v.getAgg())) {
+                return v.getAlias();
+            }
         }
-
-        String table = sql.table(layer);
-        String dimCol = sql.col(layer, field);              // dimension 컬럼
-        String metricCol = sql.col(layer, metric.getField()); // metric 대상 컬럼
-
-        String aggFunc = metric.getAgg() != null
-                ? metric.getAgg().toUpperCase()
-                : "SUM";
-
-        String orderDir = "bottom".equalsIgnoreCase(topN.getMode())
-                ? "ASC"
-                : "DESC"; // 기본은 Top = DESC
-
-        int limit = (topN.getN() != null && topN.getN() > 0)
-                ? topN.getN()
-                : 5;
-
-        MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, "ts_server_nsec", tw, filters, ps);
-
-        String text = """
-        SELECT %s AS dim_val,
-               %s(%s) AS metric_val
-        FROM %s
-        %s
-        GROUP BY %s
-        ORDER BY metric_val %s
-        LIMIT :lim
-    """.formatted(dimCol, aggFunc, metricCol, table, where, dimCol, orderDir);
-
-        ps.addValue("lim", limit);
-
-        return jdbc.query(text, ps, (rs, i) -> rs.getString("dim_val"));
+        return null;
     }
 
-    @Override
-    public PivotChartResponseDTO getChart(PivotChartRequestDTO req, TimeWindow tw) {
-
-        String layer = req.getLayer();
-        if (layer == null || layer.isBlank()) {
-            throw new BadRequestException("layer is required");
-        }
-
-        PivotChartRequestDTO.AxisDef colDef = req.getCol();
-        PivotChartRequestDTO.AxisDef rowDef = req.getRow();
-        PivotQueryRequestDTO.ValueDef metricDef = req.getMetric();
-
+    // Chart helpers
+    private void validateChartRequest(
+            PivotChartRequestDTO.AxisDef colDef,
+            PivotChartRequestDTO.AxisDef rowDef,
+            PivotQueryRequestDTO.ValueDef metricDef
+    ) {
         if (colDef == null || colDef.getField() == null || colDef.getField().isBlank()) {
             throw new BadRequestException("col.field is required");
         }
@@ -599,96 +557,77 @@ public class PivotRepositoryImpl implements PivotRepository {
         if (metricDef == null || metricDef.getField() == null || metricDef.getField().isBlank()) {
             throw new BadRequestException("metric.field is required");
         }
+    }
 
-        String table   = sql.table(layer);
-        String colExpr = sql.col(layer, colDef.getField()); // xField용
-        String rowExpr = sql.col(layer, rowDef.getField()); // yField용
-
-        MapSqlParameterSource ps = new MapSqlParameterSource();
-
-        // 시간 컬럼
-        String timeField = "ts_server_nsec";
-        if (req.getTime() != null && req.getTime().getField() != null &&
-                !req.getTime().getField().isBlank()) {
-            timeField = req.getTime().getField();
+    private List<String> resolveAxisKeys(
+            PivotQueryContext ctx,
+            PivotChartRequestDTO.AxisDef axisDef,
+            PivotQueryRequestDTO.ValueDef metricDef,
+            List<PivotQueryRequestDTO.FilterDef> baseFilters,
+            int maxCount
+    ) {
+        if (axisDef == null || axisDef.getField() == null || axisDef.getField().isBlank()) {
+            return Collections.emptyList();
         }
 
-        // 기본 필터 (시간 + 테이블에서 사용자가 설정한 필터들)
-        List<PivotQueryRequestDTO.FilterDef> baseFilters =
-                req.getFilters() != null ? new ArrayList<>(req.getFilters()) : new ArrayList<>();
+        String mode = axisDef.getMode() != null ? axisDef.getMode().toLowerCase() : "topn";
 
-        // chartType에 따라 column 최대 개수 조정 (multiplePie만 6까지 허용)
-        boolean isMultiplePie = "multiplePie".equalsIgnoreCase(req.getChartType());
-        int maxColCount = isMultiplePie ? 6 : 5;  // xField 최대 개수
-        int maxRowCount = 5;                      // yField 최대 개수
-
-        // 1) x, y 각각의 카테고리 목록 계산 (TOP-N / manual)
-        List<String> xCategories = resolveAxisKeys(
-                layer, table, colDef, metricDef,
-                timeField, tw, baseFilters,
-                maxColCount
-        );
-        List<String> yCategories = resolveAxisKeys(
-                layer, table, rowDef, metricDef,
-                timeField, tw, baseFilters,
-                maxRowCount
-        );
-
-        // 아무 값도 없으면 empty 응답
-        if (xCategories.isEmpty() || yCategories.isEmpty()) {
-            return PivotChartResponseDTO.empty(colDef.getField(), rowDef.getField());
+        if ("manual".equals(mode)) {
+            return resolveManualAxis(axisDef, maxCount);
         }
 
-        // 2) 최종 필터: baseFilters + xField IN (...), yField IN (...)
-        List<PivotQueryRequestDTO.FilterDef> finalFilters = new ArrayList<>(baseFilters);
+        return resolveTopNAxis(ctx, axisDef, metricDef, baseFilters, maxCount);
+    }
 
-        PivotQueryRequestDTO.FilterDef xFilter = new PivotQueryRequestDTO.FilterDef();
-        xFilter.setField(colDef.getField());
-        xFilter.setOp("IN");
-        xFilter.setValue(new ArrayList<>(xCategories)); // "(empty)"는 sql.where에서 처리
-        finalFilters.add(xFilter);
+    private List<String> resolveManualAxis(PivotChartRequestDTO.AxisDef axisDef, int maxCount) {
+        List<String> selected = axisDef.getSelectedItems();
+        if (selected == null || selected.isEmpty()) {
+            return Collections.emptyList();
+        }
 
-        PivotQueryRequestDTO.FilterDef yFilter = new PivotQueryRequestDTO.FilterDef();
-        yFilter.setField(rowDef.getField());
-        yFilter.setOp("IN");
-        yFilter.setValue(new ArrayList<>(yCategories));
-        finalFilters.add(yFilter);
-
-        String where = sql.where(layer, timeField, tw, finalFilters, ps);
-
-        // metric 표현식 생성 (SUM, AVG, COUNT 등)
-        String metricExpr = buildMetricExpr(metricDef, layer);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("SELECT ")
-                .append(colExpr).append(" AS c, ")
-                .append(rowExpr).append(" AS r, ")
-                .append(metricExpr).append(" AS m ")
-                .append("FROM ").append(table).append(" ")
-                .append(where)
-                .append(" GROUP BY ").append(colExpr).append(", ").append(rowExpr);
-
-        String sqlText = sb.toString();
-
-        // 3) (y, x) → metric 값 매핑
-        // key: yKey -> (xKey -> value)
-        Map<String, Map<String, Double>> valueMap = new HashMap<>();
-
-        jdbc.query(sqlText, ps, rs -> {
-            String xKey = ValueUtils.normalizeKey(rs.getString("c"));
-            String yKey = ValueUtils.normalizeKey(rs.getString("r"));
-            double v = rs.getDouble("m");
-            if (rs.wasNull()) {
-                v = 0.0;
+        List<String> result = new ArrayList<>();
+        for (String v : selected) {
+            if (v == null || v.isBlank()) {
+                result.add("(empty)");
+            } else {
+                result.add(v);
             }
+            if (result.size() >= maxCount) break;
+        }
+        return result;
+    }
 
-            valueMap
-                    .computeIfAbsent(yKey, k -> new HashMap<>())
-                    .put(xKey, v);
+    private List<String> resolveTopNAxis(
+            PivotQueryContext ctx,
+            PivotChartRequestDTO.AxisDef axisDef,
+            PivotQueryRequestDTO.ValueDef metricDef,
+            List<PivotQueryRequestDTO.FilterDef> baseFilters,
+            int maxCount
+    ) {
+        int n = 5;
+        if (axisDef.getTopN() != null && axisDef.getTopN().getN() != null && axisDef.getTopN().getN() > 0) {
+            n = axisDef.getTopN().getN();
+        }
+        if (n > maxCount) {
+            n = maxCount;
+        }
+
+        var query = chartQueryBuilder.buildTopNAxisQuery(ctx, axisDef, metricDef, baseFilters, n);
+
+        List<String> result = new ArrayList<>();
+        jdbc.query(query.sql(), query.params(), rs -> {
+            String key = ValueUtils.normalizeKey(rs.getString("k"));
+            result.add(key);
         });
 
-        // 4) yCategories, xCategories 순서에 맞춰 2D values 구성
-        // values[yIndex][xIndex]
+        return result;
+    }
+
+    private List<List<Double>> buildValuesMatrix(
+            List<String> xCategories,
+            List<String> yCategories,
+            Map<String, Map<String, Double>> valueMap
+    ) {
         List<List<Double>> valuesMatrix = new ArrayList<>();
 
         for (String yKey : yCategories) {
@@ -699,19 +638,22 @@ public class PivotRepositoryImpl implements PivotRepository {
                 double v = 0.0;
                 if (rowMap != null) {
                     Double vv = rowMap.get(xKey);
-                    if (vv != null) {
-                        v = vv;
-                    }
+                    if (vv != null) v = vv;
                 }
                 rowValues.add(v);
             }
             valuesMatrix.add(rowValues);
         }
 
-        // 5) metric 단위 series 구성 (지금은 단일 metric이지만 리스트로 감싸둠)
-        String metricField = metricDef.getField();
-        String metricAgg   = metricDef.getAgg();
+        return valuesMatrix;
+    }
 
+    private PivotChartResponseDTO.SeriesDef buildSeriesDef(
+            PivotQueryRequestDTO.ValueDef metricDef,
+            List<List<Double>> valuesMatrix
+    ) {
+        String metricField = metricDef.getField();
+        String metricAgg = metricDef.getAgg();
         String metricId = metricField + "::" + (metricAgg != null ? metricAgg : "agg");
 
         String metricLabel;
@@ -719,133 +661,20 @@ public class PivotRepositoryImpl implements PivotRepository {
             metricLabel = metricDef.getAlias();
         } else {
             String upperAgg = metricAgg != null ? metricAgg.toUpperCase() : "VAL";
-            metricLabel = upperAgg + ": " + metricField;  // ex) "SUM: total_bill"
+            metricLabel = upperAgg + ": " + metricField;
         }
 
-        PivotChartResponseDTO.SeriesDef seriesDef =
-                PivotChartResponseDTO.SeriesDef.builder()
-                        .id(metricId)
-                        .label(metricLabel)
-                        .field(metricField)
-                        .agg(metricAgg)
-                        .values(valuesMatrix)
-                        .build();
-
-        return PivotChartResponseDTO.builder()
-                .xField(colDef.getField())
-                .yField(rowDef.getField())
-                .xCategories(xCategories)
-                .yCategories(yCategories)
-                .series(Collections.singletonList(seriesDef))
+        return PivotChartResponseDTO.SeriesDef.builder()
+                .id(metricId)
+                .label(metricLabel)
+                .field(metricField)
+                .agg(metricAgg)
+                .values(valuesMatrix)
                 .build();
     }
 
-    private List<String> resolveAxisKeys(
-            String layer,
-            String table,
-            PivotChartRequestDTO.AxisDef axisDef,
-            PivotQueryRequestDTO.ValueDef metricDef,
-            String timeField,
-            TimeWindow tw,
-            List<PivotQueryRequestDTO.FilterDef> baseFilters,
-            int maxCount
-    ) {
-        if (axisDef == null || axisDef.getField() == null || axisDef.getField().isBlank()) {
-            return Collections.emptyList();
-        }
-
-        String mode = axisDef.getMode() != null ? axisDef.getMode().toLowerCase() : "topn";
-
-        // 1) manual 모드: selectedItems 그대로 사용 (최대 maxCount까지)
-        if ("manual".equals(mode)) {
-            List<String> selected = axisDef.getSelectedItems();
-            if (selected == null || selected.isEmpty()) {
-                return Collections.emptyList();
-            }
-            List<String> result = new ArrayList<>();
-            for (String v : selected) {
-                if (v == null || v.isBlank()) {
-                    result.add("(empty)");
-                } else {
-                    result.add(v);
-                }
-                if (result.size() >= maxCount) break;
-            }
-            return result;
-        }
-
-        // 2) topN 모드 (기본 5, 최대 maxCount)
-        int n = 5;
-        if (axisDef.getTopN() != null && axisDef.getTopN().getN() != null && axisDef.getTopN().getN() > 0) {
-            n = axisDef.getTopN().getN();
-        }
-        if (n > maxCount) {
-            n = maxCount;
-        }
-
-        String axisExpr = sql.col(layer, axisDef.getField());
-        String metricExpr = buildMetricExpr(metricDef, layer);
-
-        MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layer, timeField, tw, baseFilters, ps);
-        ps.addValue("lim", n);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("SELECT ")
-                .append(axisExpr).append(" AS k, ")
-                .append(metricExpr).append(" AS m ")
-                .append("FROM ").append(table).append(" ")
-                .append(where)
-                .append(" GROUP BY ").append(axisExpr)
-                .append(" ORDER BY m DESC ")
-                .append(" LIMIT :lim");
-
-        String sqlText = sb.toString();
-
-        List<String> result = new ArrayList<>();
-        jdbc.query(sqlText, ps, rs -> {
-            String key = ValueUtils.normalizeKey(rs.getString("k"));
-            result.add(key);
-        });
-
-        return result;
-    }
-
-    // X축(컬럼) 최대 개수: 너무 많으면 가독성도 죽고 테이블 컬럼 폭도 터짐
-    private static final int HEATMAP_TABLE_MAX_X = 50;
-
-    // 페이지 기본값
-    private static final int DEFAULT_PAGE_LIMIT = 100;
-
-    // metric expr 재사용
-    private String buildMetricExpr(PivotQueryRequestDTO.ValueDef v, String layer) {
-        String agg = v.getAgg() != null ? v.getAgg().toLowerCase() : "sum";
-
-        if ("count".equals(agg)) {
-            return "COUNT(*)";
-        } else {
-            String valCol = sql.col(layer, v.getField());
-            return switch (agg) {
-                case "avg" -> "AVG(" + valCol + ")";
-                case "min" -> "MIN(" + valCol + ")";
-                case "max" -> "MAX(" + valCol + ")";
-                default -> "SUM(" + valCol + ")";
-            };
-        }
-    }
-
-    @Override
-    public PivotHeatmapTableResponseDTO getHeatmapTable(PivotHeatmapTableRequestDTO req, TimeWindow tw) {
-
-        String layer = req.getLayer();
-        if (layer == null || layer.isBlank()) {
-            throw new BadRequestException("layer is required");
-        }
-
-        String colField = req.getColField();
-        String rowField = req.getRowField();
-        PivotQueryRequestDTO.ValueDef metric = req.getMetric();
-
+    // Heatmap helpers
+    private void validateHeatmapRequest(String colField, String rowField, PivotQueryRequestDTO.ValueDef metric) {
         if (colField == null || colField.isBlank()) {
             throw new BadRequestException("colField is required");
         }
@@ -853,119 +682,74 @@ public class PivotRepositoryImpl implements PivotRepository {
             throw new BadRequestException("rowField is required");
         }
         if (metric == null || metric.getField() == null || metric.getField().isBlank()) {
-            return PivotHeatmapTableResponseDTO.empty(colField, rowField);
+            throw new BadRequestException("metric is required");
         }
+    }
 
-        // 시간 컬럼
-        String timeField = "ts_server_nsec";
-        if (req.getTime() != null && req.getTime().getField() != null &&
-                !req.getTime().getField().isBlank()) {
-            timeField = req.getTime().getField();
+    private int getOffset(PivotHeatmapTableRequestDTO req) {
+        if (req.getPage() != null && req.getPage().getOffset() != null && req.getPage().getOffset() >= 0) {
+            return req.getPage().getOffset();
         }
+        return 0;
+    }
 
-        // 기본 필터
-        List<PivotQueryRequestDTO.FilterDef> baseFilters =
-                req.getFilters() != null ? new ArrayList<>(req.getFilters()) : new ArrayList<>();
-
-        String table = sql.table(layer);
-        String xCol = sql.col(layer, colField);
-        String yCol = sql.col(layer, rowField);
-
-        String metricExpr = buildMetricExpr(metric, layer);
-
-        // 페이지 계산
-        int offset = 0;
-        int limit = DEFAULT_PAGE_LIMIT;
-        if (req.getPage() != null) {
-            if (req.getPage().getOffset() != null && req.getPage().getOffset() >= 0) {
-                offset = req.getPage().getOffset();
-            }
-            if (req.getPage().getLimit() != null && req.getPage().getLimit() > 0) {
-                limit = req.getPage().getLimit();
-            }
+    private int getLimit(PivotHeatmapTableRequestDTO req) {
+        if (req.getPage() != null && req.getPage().getLimit() != null && req.getPage().getLimit() > 0) {
+            return req.getPage().getLimit();
         }
+        return DEFAULT_PAGE_LIMIT;
+    }
 
-        // 1) X축 카테고리 (컬럼 헤더) 추출: metric 기준 상위 HEATMAP_TABLE_MAX_X
+    private List<String> fetchXCategories(PivotQueryContext ctx, String colField, PivotQueryRequestDTO.ValueDef metric) {
+        var query = heatmapQueryBuilder.buildXCategoriesQuery(ctx, colField, metric, HEATMAP_TABLE_MAX_X);
         List<String> xCategories = new ArrayList<>();
-        {
-            MapSqlParameterSource ps = new MapSqlParameterSource();
-            String where = sql.where(layer, timeField, tw, baseFilters, ps);
 
-            StringBuilder sb = new StringBuilder();
-            sb.append("SELECT ").append(xCol).append(" AS cx, ")
-                    .append(metricExpr).append(" AS m0 ")
-                    .append("FROM ").append(table).append(" ")
-                    .append(where)
-                    .append(" GROUP BY ").append(xCol)
-                    .append(" ORDER BY m0 DESC")
-                    .append(" LIMIT :limitX");
-
-            ps.addValue("limitX", HEATMAP_TABLE_MAX_X);
-
-            jdbc.query(sb.toString(), ps, rs -> {
-                String cx = rs.getString("cx");
-                if (cx == null || cx.isBlank()) {
-                    cx = "(empty)";
-                }
-                xCategories.add(cx);
-            });
-        }
-
-        if (xCategories.isEmpty()) {
-            return PivotHeatmapTableResponseDTO.empty(colField, rowField);
-        }
-
-        // 2) Y축 카테고리 개수(totalRowCount) 계산
-        long totalRowCount = 0L;
-        {
-            MapSqlParameterSource ps = new MapSqlParameterSource();
-            String where = sql.where(layer, timeField, tw, baseFilters, ps);
-
-            StringBuilder sb = new StringBuilder();
-            sb.append("SELECT COUNT(DISTINCT ").append(yCol).append(") AS cnt ")
-                    .append("FROM ").append(table).append(" ")
-                    .append(where);
-
-            totalRowCount = jdbc.queryForObject(sb.toString(), ps, Long.class);
-            if (totalRowCount == 0L) {
-                return PivotHeatmapTableResponseDTO.empty(colField, rowField);
+        jdbc.query(query.sql(), query.params(), rs -> {
+            String cx = rs.getString("cx");
+            if (cx == null || cx.isBlank()) {
+                cx = "(empty)";
             }
-        }
+            xCategories.add(cx);
+        });
 
-        // 3) 이번 페이지에 표시할 Y축 카테고리 목록 (offset/limit)
+        return xCategories;
+    }
+
+    private long fetchYTotalCount(PivotQueryContext ctx, String rowField) {
+        var query = heatmapQueryBuilder.buildYCountQuery(ctx, rowField);
+        Long count = jdbc.queryForObject(query.sql(), query.params(), Long.class);
+        return count != null ? count : 0L;
+    }
+
+    private List<String> fetchYCategoriesPage(
+            PivotQueryContext ctx,
+            String rowField,
+            PivotQueryRequestDTO.ValueDef metric,
+            int offset,
+            int limit
+    ) {
+        var query = heatmapQueryBuilder.buildYCategoriesPageQuery(ctx, rowField, metric, offset, limit);
         List<String> yCategories = new ArrayList<>();
-        {
-            MapSqlParameterSource ps = new MapSqlParameterSource();
-            String where = sql.where(layer, timeField, tw, baseFilters, ps);
 
-            StringBuilder sb = new StringBuilder();
-            sb.append("SELECT ").append(yCol).append(" AS ry, ")
-                    .append(metricExpr).append(" AS m0 ")
-                    .append("FROM ").append(table).append(" ")
-                    .append(where)
-                    .append(" GROUP BY ").append(yCol)
-                    .append(" ORDER BY m0 DESC")
-                    .append(" LIMIT :limit OFFSET :offset");
+        jdbc.query(query.sql(), query.params(), rs -> {
+            String ry = rs.getString("ry");
+            if (ry == null || ry.isBlank()) {
+                ry = "(empty)";
+            }
+            yCategories.add(ry);
+        });
 
-            ps.addValue("limit", limit);
-            ps.addValue("offset", offset);
+        return yCategories;
+    }
 
-            jdbc.query(sb.toString(), ps, rs -> {
-                String ry = rs.getString("ry");
-                if (ry == null || ry.isBlank()) {
-                    ry = "(empty)";
-                }
-                yCategories.add(ry);
-            });
-        }
-
-        if (yCategories.isEmpty()) {
-            // offset이 totalRowCount 이상인 상황일 수 있음
-            return PivotHeatmapTableResponseDTO.empty(colField, rowField);
-        }
-
-        // 4) 셀 값 조회: X IN xCategories, Y IN yCategories
-
+    private CellResult fetchCellValues(
+            PivotQueryContext ctx,
+            String colField,
+            String rowField,
+            PivotQueryRequestDTO.ValueDef metric,
+            List<String> xCategories,
+            List<String> yCategories
+    ) {
         Map<String, Integer> xPos = new HashMap<>();
         for (int i = 0; i < xCategories.size(); i++) {
             xPos.put(xCategories.get(i), i);
@@ -975,7 +759,6 @@ public class PivotRepositoryImpl implements PivotRepository {
             yPos.put(yCategories.get(i), i);
         }
 
-// values[yIdx][xIdx] & rowTotals
         List<List<Double>> values = new ArrayList<>();
         List<Double> rowTotals = new ArrayList<>();
         for (int yi = 0; yi < yCategories.size(); yi++) {
@@ -987,102 +770,105 @@ public class PivotRepositoryImpl implements PivotRepository {
             rowTotals.add(0.0);
         }
 
-// 여기서는 pageMin/pageMax 선언만 해두고
         Double pageMin = null;
         Double pageMax = null;
 
-        {
-            List<PivotQueryRequestDTO.FilterDef> filters = new ArrayList<>(baseFilters);
+        var query = heatmapQueryBuilder.buildCellValuesQuery(ctx, colField, rowField, metric, xCategories, yCategories);
 
-            PivotQueryRequestDTO.FilterDef fx = new PivotQueryRequestDTO.FilterDef();
-            fx.setField(colField);
-            fx.setOp("IN");
-            fx.setValue(new ArrayList<>(xCategories));
-            filters.add(fx);
+        jdbc.query(query.sql(), query.params(), rs -> {
+            String cx = rs.getString("cx");
+            if (cx == null || cx.isBlank()) {
+                cx = "(empty)";
+            }
+            String ry = rs.getString("ry");
+            if (ry == null || ry.isBlank()) {
+                ry = "(empty)";
+            }
 
-            PivotQueryRequestDTO.FilterDef fy = new PivotQueryRequestDTO.FilterDef();
-            fy.setField(rowField);
-            fy.setOp("IN");
-            fy.setValue(new ArrayList<>(yCategories));
-            filters.add(fy);
+            Integer xi = xPos.get(cx);
+            Integer yi = yPos.get(ry);
+            if (xi == null || yi == null) return;
 
-            MapSqlParameterSource ps = new MapSqlParameterSource();
-            String where = sql.where(layer, timeField, tw, filters, ps);
+            double v = rs.getDouble("m0");
+            if (rs.wasNull()) v = 0.0;
 
-            StringBuilder sb = new StringBuilder();
-            sb.append("SELECT ")
-                    .append(xCol).append(" AS cx, ")
-                    .append(yCol).append(" AS ry, ")
-                    .append(metricExpr).append(" AS m0 ")
-                    .append("FROM ").append(table).append(" ")
-                    .append(where)
-                    .append(" GROUP BY ").append(xCol).append(", ").append(yCol);
+            double old = values.get(yi).get(xi);
+            double newVal = old + v;
+            values.get(yi).set(xi, newVal);
 
-            jdbc.query(sb.toString(), ps, rs -> {
-                String cx = rs.getString("cx");
-                if (cx == null || cx.isBlank()) {
-                    cx = "(empty)";
-                }
-                String ry = rs.getString("ry");
-                if (ry == null || ry.isBlank()) {
-                    ry = "(empty)";
-                }
+            double oldRowTotal = rowTotals.get(yi);
+            rowTotals.set(yi, oldRowTotal + v);
+        });
 
-                Integer xi = xPos.get(cx);
-                Integer yi = yPos.get(ry);
-                if (xi == null || yi == null) {
-                    return;
-                }
-
-                double v = rs.getDouble("m0");
-                if (rs.wasNull()) {
-                    v = 0.0;
-                }
-
-                double old = values.get(yi).get(xi);
-                double newVal = old + v;
-                values.get(yi).set(xi, newVal);
-
-                double oldRowTotal = rowTotals.get(yi);
-                rowTotals.set(yi, oldRowTotal + v);
-            });
-        }
-
-        for (int yi = 0; yi < values.size(); yi++) {
-            List<Double> row = values.get(yi);
-            for (int xi = 0; xi < row.size(); xi++) {
-                double v = row.get(xi);
-                if (pageMin == null || v < pageMin) {
-                    pageMin = v;
-                }
-                if (pageMax == null || v > pageMax) {
-                    pageMax = v;
-                }
+        for (List<Double> row : values) {
+            for (double v : row) {
+                if (pageMin == null || v < pageMin) pageMin = v;
+                if (pageMax == null || v > pageMax) pageMax = v;
             }
         }
 
-        // 5) RowDef 리스트로 변환
-        List<PivotHeatmapTableResponseDTO.RowDef> rows = new ArrayList<>();
-        for (int yi = 0; yi < yCategories.size(); yi++) {
-            rows.add(
-                    PivotHeatmapTableResponseDTO.RowDef.builder()
-                            .yCategory(yCategories.get(yi))
-                            .cells(values.get(yi))
-                            .rowTotal(rowTotals.get(yi))
-                            .build()
-            );
+        return new CellResult(values, rowTotals, pageMin, pageMax);
+    }
+
+    // Inner classes
+    private static class RowValueComparator implements Comparator<String> {
+        private final Map<String, Map<String, Map<String, Object>>> breakdown;
+        private final String sortColumnValue;
+        private final String sortAlias;
+        private final String direction;
+
+        public RowValueComparator(
+                Map<String, Map<String, Map<String, Object>>> breakdown,
+                String sortColumnValue,
+                String sortAlias,
+                String direction
+        ) {
+            this.breakdown = breakdown;
+            this.sortColumnValue = sortColumnValue;
+            this.sortAlias = sortAlias;
+            this.direction = direction;
         }
 
-        return PivotHeatmapTableResponseDTO.builder()
-                .xField(colField)
-                .yField(rowField)
-                .xCategories(xCategories)
-                .rows(rows)
-                .totalRowCount(totalRowCount)
-                .offset(offset)
-                .limit(limit)
-                .pageMin(pageMin)
-                .pageMax(pageMax)
-                .build();
+        @Override
+        public int compare(String rv1, String rv2) {
+            Map<String, Map<String, Object>> byCol1 =
+                    breakdown.getOrDefault(rv1, Collections.emptyMap());
+            Map<String, Map<String, Object>> byCol2 =
+                    breakdown.getOrDefault(rv2, Collections.emptyMap());
+
+            Map<String, Object> metrics1 =
+                    byCol1.getOrDefault(sortColumnValue, Collections.emptyMap());
+            Map<String, Object> metrics2 =
+                    byCol2.getOrDefault(sortColumnValue, Collections.emptyMap());
+
+            Object o1 = metrics1.get(sortAlias);
+            Object o2 = metrics2.get(sortAlias);
+
+            double d1 = (o1 instanceof Number) ? ((Number) o1).doubleValue() : Double.NaN;
+            double d2 = (o2 instanceof Number) ? ((Number) o2).doubleValue() : Double.NaN;
+
+            if (Double.isNaN(d1) && Double.isNaN(d2)) return 0;
+            if (Double.isNaN(d1)) return 1;
+            if (Double.isNaN(d2)) return -1;
+
+            int cmp = Double.compare(d1, d2);
+            if ("desc".equalsIgnoreCase(direction)) {
+                cmp = -cmp;
+            }
+
+            if (cmp != 0) return cmp;
+
+            if (rv1 == null && rv2 == null) return 0;
+            if (rv1 == null) return 1;
+            if (rv2 == null) return -1;
+            return rv1.compareTo(rv2);
+        }
     }
+
+    private record CellResult(
+            List<List<Double>> values,
+            List<Double> rowTotals,
+            Double pageMin,
+            Double pageMax
+    ) {}
 }
