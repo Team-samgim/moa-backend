@@ -7,13 +7,13 @@ on:
     branches: [ "main", "dev" ]
 
 jobs:
-  notify:
+  message:
     runs-on: ubuntu-latest
     steps:
-      - name: Discord Webhook Action
-        uses: tsickert/discord-webhook@v5.3.0
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    - name: Discord Webhook Action
+      uses: tsickert/discord-webhook@v5.3.0
+      with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK_URL }}
           content: |
             📢 **GitHub 알림**
             Repo: ${{ github.repository }}

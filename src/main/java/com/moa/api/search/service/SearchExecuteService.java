@@ -1,0 +1,345 @@
+package com.moa.api.search.service;
+
+import com.moa.api.search.dto.SearchDTO;
+import com.moa.api.search.repository.LayerFieldMetaRepository;
+import com.moa.api.search.entity.LayerFieldMeta;
+import lombok.RequiredArgsConstructor;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.util.*;
+import java.util.stream.Collectors;
+import com.moa.api.search.registry.DataType;
+import com.moa.api.search.registry.OpCode;
+
+@Service
+@RequiredArgsConstructor
+public class SearchExecuteService {
+
+    private final NamedParameterJdbcTemplate jdbc;
+    private final LayerFieldMetaRepository fieldMetaRepo;
+
+    public SearchDTO execute(SearchDTO req) {
+        System.out.println("[SearchExecuteService] execute 시작");
+
+        // 1) 기본값/가드
+        String layer = Optional.ofNullable(req.getLayer())
+                .filter(StringUtils::hasText)
+                .orElse("HTTP_PAGE");
+        System.out.println("  - layer: " + layer);
+
+        // layer 기반 테이블명 매핑
+        String dataTable = resolveTableFromLayer(layer);
+        String fieldsTable = resolveFieldsTableFromLayer(layer);
+        System.out.println("  - dataTable: " + dataTable);
+        System.out.println("  - fieldsTable: " + fieldsTable);
+
+        SearchDTO.TimeSpec time = Objects.requireNonNull(req.getTime(), "time is required");
+        String timeField = Optional.ofNullable(time.getField()).filter(StringUtils::hasText).orElse("ts_server_nsec");
+        boolean inclusive = Optional.ofNullable(time.getInclusive()).orElse(true);
+
+        System.out.println("  - timeField: " + timeField);
+        System.out.println("  - fromEpoch: " + time.getFromEpoch());
+        System.out.println("  - toEpoch: " + time.getToEpoch());
+        System.out.println("  - columns: " + req.getColumns());
+        System.out.println("  - conditions: " + req.getConditions());
+
+        // 2) 레이어별 필드,데이터타입 맵(화이트리스트) -> SQL인젝션 방지
+        Map<String, String> fieldTypeMap = fieldMetaRepo.findAllByTableName(fieldsTable).stream()
+                .collect(Collectors.toMap(
+                        LayerFieldMeta::getFieldKey,
+                        LayerFieldMeta::getDataType,
+                        (a, b) -> a,
+                        LinkedHashMap::new
+                ));
+
+        System.out.println("  - 로드된 필드 수: " + fieldTypeMap.size());
+        System.out.println("  - 필드 목록: " + fieldTypeMap.keySet());
+
+        // 3) WHERE절 생성
+        StringBuilder where = new StringBuilder();
+        MapSqlParameterSource params = new MapSqlParameterSource();
+
+        // 3-1) 기간 조건
+        if (time.getFromEpoch() != null) {
+            where.append(where.length() == 0 ? " WHERE " : " AND ");
+            where.append(" t.").append(safeColumn(timeField, fieldTypeMap));
+            where.append(inclusive ? " >= :fromEpoch " : " > :fromEpoch ");
+            params.addValue("fromEpoch", time.getFromEpoch());
+        }
+        if (time.getToEpoch() != null) {
+            where.append(where.length() == 0 ? " WHERE " : " AND ");
+            where.append(" t.").append(safeColumn(timeField, fieldTypeMap));
+            where.append(inclusive ? " <= :toEpoch " : " < :toEpoch ");
+            params.addValue("toEpoch", time.getToEpoch());
+        }
+
+        // 3-2) 조건들
+        String condSql = buildConditionsSql(req, fieldTypeMap, params);
+        if (StringUtils.hasText(condSql)) {
+            where.append(where.length() == 0 ? " WHERE " : " AND ");
+            if (req.getNot()) {
+                where.append(" NOT ( ").append(condSql).append(" ) ");
+            } else {
+                where.append(" ( ").append(condSql).append(" ) ");
+            }
+        }
+
+        // 4) ORDER/LIMIT
+        String orderBy = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOrderBy).orElse("ts_server_nsec");
+        String order = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOrder).orElse("DESC");
+        int limit = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getLimit).orElse(100);
+        limit = Math.max(1, Math.min(1000, limit));
+        int offset = Optional.ofNullable(req.getOptions()).map(SearchDTO.Options::getOffset).orElse(0);
+        offset = Math.max(0, offset);
+
+        orderBy = safeColumn(orderBy, fieldTypeMap);
+        order = "ASC".equalsIgnoreCase(order) ? "ASC" : "DESC";
+
+        // SELECT 절 생성
+        String selectClause;
+        if (req.getColumns() != null && !req.getColumns().isEmpty()) {
+            String cols = req.getColumns().stream()
+                    .map(c -> "t." + safeColumn(c, fieldTypeMap))
+                    .collect(Collectors.joining(", "));
+            selectClause = "SELECT " + cols;
+        } else {
+            selectClause = "SELECT *";
+        }
+
+        String orderExpr = switch (fieldTypeMap.getOrDefault(orderBy, "TEXT").toUpperCase()) {
+            case "NUMBER" -> "t." + orderBy + "::numeric";
+            case "DATETIME" -> "t." + orderBy;
+            default -> "t." + orderBy + "::text";
+        };
+
+        String sql = selectClause + " FROM " + dataTable + " t " +
+                where +
+                " ORDER BY " + orderExpr + " " + order +
+                " LIMIT :limit OFFSET :offset";
+
+        System.out.println("📝 [SearchExecuteService] 생성된 SQL:");
+        System.out.println(sql);
+        System.out.println("  - 파라미터: " + params.getValues());
+
+        params.addValue("limit", limit);
+        params.addValue("offset", offset);
+
+        List<Map<String, Object>> rows = jdbc.queryForList(sql, params);
+
+        System.out.println("[SearchExecuteService] 조회 결과: " + rows.size() + "건");
+        if (!rows.isEmpty()) {
+            System.out.println("  - 첫 번째 row: " + rows.get(0));
+        }
+
+        // (선택) 총 건수
+        Integer total = null;
+        try {
+            String cntSql = "SELECT COUNT(*) FROM " + dataTable + " t " + where;
+            total = jdbc.queryForObject(cntSql, params, Integer.class);
+        } catch (EmptyResultDataAccessException ignore) {}
+
+        return new SearchDTO(rows, total);
+    }
+
+    /**
+     * layer 값에 따라 데이터 테이블명 매핑
+     * _sample 테이블 조회
+     */
+    private String resolveTableFromLayer(String layer) {
+        return switch (layer.toUpperCase(Locale.ROOT)) {
+            case "HTTP_PAGE" -> "http_page_sample";
+            case "HTTP_URI" -> "http_uri_sample";
+            case "TCP" -> "tcp_sample";
+            case "ETHERNET" -> "ethernet_sample";
+            default -> throw new IllegalArgumentException("UNKNOWN_LAYER: " + layer);
+        };
+    }
+
+    /**
+     * layer 값에 따라 필드 메타 테이블명 매핑
+     * _fields 테이블 조회
+     */
+    private String resolveFieldsTableFromLayer(String layer) {
+        return switch (layer.toUpperCase(Locale.ROOT)) {
+            case "HTTP_PAGE" -> "http_page_fields";
+            case "HTTP_URI" -> "http_uri_fields";
+            case "TCP" -> "tcp_fields";
+            case "ETHERNET" -> "ethernet_fields";
+            default -> throw new IllegalArgumentException("UNKNOWN_LAYER: " + layer);
+        };
+    }
+
+    /** 조건들 SQL 생성 (join/템플릿/바인딩 처리) */
+    private String buildConditionsSql(SearchDTO req,
+                                      Map<String, String> fieldTypeMap,
+                                      MapSqlParameterSource params) {
+        if (req.getConditions() == null || req.getConditions().isEmpty()) return "";
+
+        List<String> parts = new ArrayList<>();
+        int idx = 0;
+        for (SearchDTO.Condition c : req.getConditions()) {
+            String field = c.getField();
+            if (!StringUtils.hasText(field)) continue;
+            String dataType = fieldTypeMap.get(field);
+            if (dataType == null) {
+                throw new IllegalArgumentException("INVALID_FIELD: " + field);
+            }
+
+            String op = c.getOp();
+            if (!StringUtils.hasText(op)) continue;
+
+            String tpl = templateOf(dataType, op);
+            String clause = tpl.replace("${f}", "t." + safeColumn(field, fieldTypeMap));
+
+            List<Object> values = Optional.ofNullable(c.getValues()).orElse(List.of());
+            if (clause.contains(":v1")) {
+                String name = "v1_" + idx;
+                clause = clause.replace(":v1", ":" + name);
+                params.addValue(name, castValue(dataType, values.size() > 0 ? values.get(0) : null));
+            }
+            if (clause.contains(":v2")) {
+                String name = "v2_" + idx;
+                clause = clause.replace(":v2", ":" + name);
+                params.addValue(name, castValue(dataType, values.size() > 1 ? values.get(1) : null));
+            }
+            if (clause.contains(":list")) {
+                String name = "list_" + idx;
+                clause = clause.replace(":list", ":" + name);
+                List<Object> casted = values.stream().map(v -> castValue(dataType, v)).toList();
+                params.addValue(name, casted);
+            }
+
+            String join = (idx == 0) ? null : Optional.ofNullable(c.getJoin()).orElse("AND");
+            if (join != null) {
+                parts.add(join.toUpperCase(Locale.ROOT));
+            }
+            parts.add("(" + clause + ")");
+            idx++;
+        }
+        return String.join(" ", parts);
+    }
+
+    /** 고정 레지스트리: 데이터타입/연산자 조합 → SQL 템플릿 */
+    private String templateOf(String dataType, String opRaw) {
+        DataType dt = parseType(dataType);
+        OpCode op = parseOp(opRaw);
+        return switch (dt) {
+            case TEXT -> textTpl(op);
+            case NUMBER -> numberTpl(op);
+            case IP -> ipTpl(op);
+            case DATETIME -> datetimeTpl(op);
+            case BOOLEAN -> booleanTpl(op);
+        };
+    }
+
+    private DataType parseType(String raw) {
+        if (raw == null) return DataType.TEXT;
+        try { return DataType.valueOf(raw.trim().toUpperCase(Locale.ROOT)); }
+        catch (Exception e) { return DataType.TEXT; }
+    }
+
+    private OpCode parseOp(String raw) {
+        Objects.requireNonNull(raw, "op is required");
+        try { return OpCode.valueOf(raw.trim().toUpperCase(Locale.ROOT)); }
+        catch (Exception e) { throw new IllegalArgumentException("INVALID_OPERATOR: " + raw); }
+    }
+
+    // TEXT
+    private String textTpl(OpCode op) {
+        return switch (op) {
+            case LIKE -> "${f} ILIKE '%' || :v1 || '%'";
+            case EQ -> "${f} = :v1";
+            case NE -> "${f} <> :v1";
+            case STARTS_WITH -> "${f} ILIKE :v1 || '%'";
+            case ENDS_WITH -> "${f} ILIKE '%' || :v1";
+            case IN -> "${f} IN (:list)";
+            case IS_NULL -> "${f} IS NULL";
+            case IS_NOT_NULL -> "${f} IS NOT NULL";
+            default -> throw new IllegalArgumentException("Unsupported TEXT op: " + op);
+        };
+    }
+
+    // NUMBER
+    private String numberTpl(OpCode op) {
+        return switch (op) {
+            case EQ -> "${f} = :v1";
+            case NE -> "${f} <> :v1";
+            case GT -> "${f} > :v1";
+            case GTE -> "${f} >= :v1";
+            case LT -> "${f} < :v1";
+            case LTE -> "${f} <= :v1";
+            case BETWEEN -> "${f} BETWEEN :v1 AND :v2";
+            case IN -> "${f} IN (:list)";
+            case IS_NULL -> "${f} IS NULL";
+            case IS_NOT_NULL -> "${f} IS NOT NULL";
+            default -> throw new IllegalArgumentException("Unsupported NUMBER op: " + op);
+        };
+    }
+
+    // IP
+    private String ipTpl(OpCode op) {
+        return switch (op) {
+            case EQ -> "${f}::text = :v1";
+            case LIKE -> "${f}::text ILIKE '%' || :v1 || '%'";
+            case IN -> "${f}::text IN (:list)";
+            case IS_NULL -> "${f} IS NULL";
+            case IS_NOT_NULL -> "${f} IS NOT NULL";
+            default -> throw new IllegalArgumentException("Unsupported IP op: " + op);
+        };
+    }
+
+    // DATETIME
+    private String datetimeTpl(OpCode op) {
+        return switch (op) {
+            case GTE -> "${f} >= to_timestamp(:v1)";
+            case LT -> "${f} < to_timestamp(:v1)";
+            case BETWEEN -> "${f} BETWEEN to_timestamp(:v1) AND to_timestamp(:v2)";
+            case IN -> "${f} IN (SELECT to_timestamp(x) FROM unnest(:list) x)";
+            case IS_NULL -> "${f} IS NULL";
+            case IS_NOT_NULL -> "${f} IS NOT NULL";
+            default -> throw new IllegalArgumentException("Unsupported DATETIME op: " + op);
+        };
+    }
+
+    // BOOLEAN
+    private String booleanTpl(OpCode op) {
+        return switch (op) {
+            case IS_NULL -> "${f} IS NULL";
+            case IS_NOT_NULL -> "${f} IS NOT NULL";
+            default -> throw new IllegalArgumentException("Unsupported BOOLEAN op: " + op);
+        };
+    }
+
+    /** 정렬/컬럼 화이트리스트 보호용 */
+    private String safeColumn(String col, Map<String, String> fieldTypeMap) {
+        if (!StringUtils.hasText(col)) throw new IllegalArgumentException("EMPTY_COLUMN");
+        if (fieldTypeMap.containsKey(col)) return col;
+        if ("ts_server".equalsIgnoreCase(col) || "ts_server_nsec".equalsIgnoreCase(col)) return col;
+        throw new IllegalArgumentException("FORBIDDEN_COLUMN: " + col);
+    }
+
+    /** 간단 캐스팅 */
+    private Object castValue(String dataType, Object raw) {
+        if (raw == null) return null;
+        DataType dt = parseType(dataType);
+        return switch (dt) {
+            case NUMBER -> {
+                if (raw instanceof Number) yield raw;
+                try { yield Long.valueOf(raw.toString()); } catch (Exception e) { yield raw; }
+            }
+            case DATETIME -> {
+                if (raw instanceof Number) yield raw;
+                try { yield Long.valueOf(raw.toString()); } catch (Exception e) { yield raw; }
+            }
+            case BOOLEAN -> {
+                if (raw instanceof Boolean) yield raw;
+                yield Boolean.valueOf(raw.toString());
+            }
+            default -> raw.toString();
+        };
+    }
+}

@@ -1,0 +1,31 @@
+# jira-issue-link-in-pr.yml
+name: Link Jira issue key in PR
+on:
+  pull_request:
+    types: [opened, reopened]
+jobs:
+  link_jira_issue: # 작업 이름
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Jira Key from branch name
+        id: extract
+        run: |
+          branch="${{ github.event.pull_request.head.ref }}"
+          if [[ "$branch" =~ ([A-Z][A-Z0-9]+-[0-9]+) ]]; then
+            echo "issue=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+          else
+            echo "issue=" >> $GITHUB_OUTPUT
+          fi
+         
+      - name: Update PR body
+        uses: AsasInnab/pr-body-action@v1
+        if: steps.extract.outputs.issue != ''
+        with:
+          body: |
+            ## PR Description
+
+            ### 🔗 Jira 이슈
+            - [${{ steps.extract.outputs.issue }}](${{ secrets.JIRA_BASE_URL }}/browse/${{ steps.extract.outputs.issue }})
+
+            ${{ github.event.pull_request.body }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

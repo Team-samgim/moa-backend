@@ -1,0 +1,138 @@
+package com.moa.api.grid.service;
+
+import com.moa.api.grid.dto.*;
+import com.moa.api.grid.repository.GridRepositoryImpl;
+import com.moa.api.search.dto.SearchDTO;
+import com.moa.api.search.service.SearchExecuteService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class GridService {
+
+    private final GridRepositoryImpl gridRepository;
+    private final SearchExecuteService executeService;
+    private final ObjectMapper om = new ObjectMapper();
+
+    // 필터 Distinct
+    public FilterResponseDTO getDistinctValues(
+            String layer,
+            String field,
+            String filterModel,
+            String search,
+            int offset,
+            int limit,
+            boolean includeSelfFromClient,
+            String orderBy,
+            String order,
+            String baseSpecJson
+    ) {
+        // 클라 의도 OR 자기필터 감지
+        boolean includeSelf = includeSelfFromClient || hasSelfFilter(filterModel, field);
+
+        var page = gridRepository.getDistinctValuesPaged(
+                layer, field, filterModel, includeSelf, search, offset, limit, orderBy, order, baseSpecJson);
+
+        // 캐스팅 제거
+        List<Object> values = page.values().stream().map(v -> (Object) v).toList();
+
+        return FilterResponseDTO.builder()
+                .field(field)
+                .values(values)
+                .total(page.total())
+                .offset(page.offset())
+                .limit(page.limit())
+                .nextOffset(page.nextOffset())
+                .hasMore(page.nextOffset() != null)
+                .build();
+    }
+
+    // 같은 필드에 어떤 필터든 있으면 true (field-name의 "-suffix" 무시)
+    private boolean hasSelfFilter(String filterModel, String field) {
+        if (filterModel == null || filterModel.isBlank() || field == null || field.isBlank()) return false;
+        try {
+            JsonNode root = om.readTree(filterModel);
+            String target = safeFieldName(field);
+
+            // 키 전부 순회하며 안전필드명으로 비교
+            for (Iterator<String> it = root.fieldNames(); it.hasNext(); ) {
+                String k = it.next();
+                if (!safeFieldName(k).equals(target)) continue;
+
+                JsonNode node = root.get(k);
+                String mode = node.path("mode").asText("");
+                if ("checkbox".equalsIgnoreCase(mode) || "condition".equalsIgnoreCase(mode)) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            log.debug("[GridService] hasSelfFilter parse fail: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private String safeFieldName(String f) {
+        if (f == null) return "";
+        int i = f.indexOf('-');
+        return (i >= 0) ? f.substring(0, i) : f;
+    }
+
+    /**
+     * 집계 (date 제외, number/string/ip/mac)
+     */
+    public AggregateResponseDTO aggregate(AggregateRequestDTO req) {
+        return gridRepository.aggregate(req);
+    }
+
+    /**
+     * 그리드 데이터 (SearchSpec 기반)
+     */
+    public SearchResponseDTO getGridDataBySearchSpec(SearchDTO req) {
+        log.info("[GridService] 받은 요청 layer={}, columns={}, conditions={}, time={}",
+                req.getLayer(), req.getColumns(), req.getConditions(), req.getTime());
+
+        // 1) 데이터 조회
+        SearchDTO out = executeService.execute(req);
+        log.info("[GridService] rows={}, total={}",
+                (out.getRows() != null ? out.getRows().size() : null), out.getTotal());
+        if (out.getRows() != null && !out.getRows().isEmpty()) {
+            log.debug("[GridService] 첫 row keys={}", out.getRows().get(0).keySet());
+        }
+
+        // 2) layer 결정(일관되게 소문자 기본)
+        String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "http_page" : req.getLayer();
+
+        // 3) 전체 컬럼 메타
+        var allColumns = gridRepository.getColumnsWithType(layer);
+        log.info("[GridService] 전체 컬럼 수={}", allColumns.size());
+
+        // 4) 요청 컬럼만 필터링(순서 보존) - O(n) 매핑
+        List<String> requested = req.getColumns();
+        List<SearchResponseDTO.ColumnDTO> filteredColumns;
+        if (requested != null && !requested.isEmpty()) {
+            Map<String, SearchResponseDTO.ColumnDTO> index =
+                    allColumns.stream().collect(Collectors.toMap(SearchResponseDTO.ColumnDTO::getName, c -> c, (a, b) -> a));
+            filteredColumns = requested.stream()
+                    .map(index::get)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            log.info("[GridService] 필터링된 컬럼 수={}", filteredColumns.size());
+        } else {
+            filteredColumns = allColumns;
+        }
+
+        return SearchResponseDTO.builder()
+                .layer(layer)
+                .columns(filteredColumns)
+                .rows(out.getRows())
+                .total(out.getTotal())
+                .build();
+    }
+}
