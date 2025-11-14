@@ -16,9 +16,7 @@ public class HttpPageMetricsController {
     private final HttpPageMetricsService service;
 
     @GetMapping("/{rowKey}")
-    public ResponseEntity<HttpPageMetricsDTO> get(@PathVariable String rowKey) {
-        return service.getMetrics(rowKey)
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+    public HttpPageMetricsDTO getOne(@PathVariable String rowKey) {
+        return service.getByRowKey(rowKey);
     }
 }

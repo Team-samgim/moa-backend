@@ -96,5 +96,5 @@ public interface EthernetSampleRepository extends JpaRepository<EthernetSample, 
             group by row_key
             """,
             nativeQuery = true)
-    Optional<EthernetAgg> findAgg(@Param("rowKey") String rowKey);
+    Optional<EthernetRowSlice> findAgg(@Param("rowKey") String rowKey);
 }
