@@ -41,6 +41,11 @@ public record HttpPageMetricsDTO(
         Long httpsUriCnt,
         Long pageErrorCnt,
 
+        // 프로토콜/센서 정보 (최상위로 이동) ⭐
+        String ndpiProtocolApp,
+        String ndpiProtocolMaster,
+        String sensorDeviceName,
+
         // 중첩 구조
         Timing timing,
         Methods methods,
@@ -113,13 +118,13 @@ public record HttpPageMetricsDTO(
     public record StatusCodes(
             long code1xxCnt,
             long code2xxCnt,
+            long code304Cnt,     // ← 304가 3xx보다 먼저! (CSV 순서와 일치)
             long code3xxCnt,
-            long code4xxCnt,
-            long code5xxCnt,
-            long code304Cnt,
             long code401Cnt,
             long code403Cnt,
             long code404Cnt,
+            long code4xxCnt,
+            long code5xxCnt,
             long codeOthCnt
     ) {}
 
@@ -310,12 +315,9 @@ public record HttpPageMetricsDTO(
     ) {}
 
     /**
-     * 환경 정보
+     * 환경 정보 (지리 정보만)
      */
     public record Environment(
-            String ndpiProtocolApp,
-            String ndpiProtocolMaster,
-            String sensorDeviceName,
             String countryReq,
             String countryRes,
             String continentReq,
