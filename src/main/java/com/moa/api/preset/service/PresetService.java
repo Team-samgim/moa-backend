@@ -23,7 +23,7 @@ public class PresetService {
         Integer id = repo.insert(
                 resolveMemberId(),
                 req.getPresetName(),
-                "GRID",
+                "SEARCH",
                 req.getConfig(),
                 Boolean.TRUE.equals(req.getFavorite()),
                 PresetOrigin.USER                 // ★ 항상 USER로 저장

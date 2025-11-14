@@ -15,8 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class PresetGridController {
     private final PresetService service;
 
-    @PostMapping("/grid")
-    public SaveSearchPresetResponseDTO createGrid(@RequestBody SaveSearchPresetRequestDTO req) throws Exception {
+    @PostMapping("/search")
+    public SaveSearchPresetResponseDTO createSearch(@RequestBody SaveSearchPresetRequestDTO req) throws Exception {
         return service.saveGrid(req);
     }
 }
