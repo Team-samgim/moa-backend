@@ -17,4 +17,6 @@ public interface ExportFileRepository extends JpaRepository<ExportFile, Long> {
     Optional<ExportFile> findByExportIdAndMember_Id(Long exportId, Long memberId);
 
     long countByPreset_PresetId(Integer presetId);
+
+    Optional<ExportFile> findByBucketAndObjectKey(String bucket, String objectKey);
 }
