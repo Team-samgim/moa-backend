@@ -46,3 +46,18 @@ jobs:
             cd /home/ubuntu/moa
             docker compose pull backend
             docker compose up -d backend
+
+      # 디스코드 알림 추가
+      - name: Notify Discord (success)
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d "{\"content\": \"✅ Backend 배포 성공! 브랜치: ${GITHUB_REF}, 커밋: ${GITHUB_SHA}\"}" \
+            ${{ secrets.DISCORD_WEBHOOK_URL_BACKEND }}
+
+      - name: Notify Discord (failure)
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d "{\"content\": \"❌ Backend 배포 실패… 로그 확인 필요. 브랜치: ${GITHUB_REF}\"}" \
+            ${{ secrets.DISCORD_WEBHOOK_URL_BACKEND }}
