@@ -1,7 +1,7 @@
 package com.moa.api.detail.ethernet.service;
 
 import com.moa.api.detail.ethernet.dto.EthernetMetricsDTO;
-import com.moa.api.detail.ethernet.repository.EthernetAgg;
+import com.moa.api.detail.ethernet.repository.EthernetRowSlice;
 import com.moa.api.detail.ethernet.repository.EthernetSampleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -32,7 +32,7 @@ public class EthernetMetricsService {
                 .map(this::toDTO);
     }
 
-    private EthernetMetricsDTO toDTO(EthernetAgg a) {
+    private EthernetMetricsDTO toDTO(EthernetRowSlice a) {
 
         // === 기간 / 규모 계산 ===
         double tsFirst = nzD(a.getTsFirst());

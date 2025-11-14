@@ -3,7 +3,7 @@ package com.moa.api.detail.ethernet.repository;
 /**
  * Repository의 네이티브 쿼리 결과를 매핑하는 Projection 인터페이스
  */
-public interface EthernetAgg {
+public interface EthernetRowSlice {
 
     // === 식별 / 메타 ===
     String getRowKey();
