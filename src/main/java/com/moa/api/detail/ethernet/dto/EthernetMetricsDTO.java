@@ -15,14 +15,25 @@ public record EthernetMetricsDTO(
         Long l2Proto,
         Long l3Proto,
         Long l4Proto,
+        String l4ProtoName,      // 🆕 "TCP", "UDP" 등 읽기 쉬운 이름
         Long l7proto,
         Integer ipVersion,
         String app,              // ndpi_protocol_app
         String master,           // ndpi_protocol_master
         String sniHostname,
 
-        // === 기간 / 규모 / 속도 ===
+        // === 시간 정보 ===
+        Double tsFirst,          // 🆕 플로우 시작 시간 (epoch seconds)
+        Double tsLast,           // 🆕 플로우 종료 시간 (epoch seconds)
+        Double tsSampleBegin,    // 🆕 샘플링 시작 시간
+        Double tsSampleEnd,      // 🆕 샘플링 종료 시간
         double durSec,           // 세션 총 지속시간 (sec)
+
+        // === 세션 상태 ===
+        Integer expired,         // 🆕 만료 여부 (0/1)
+        Integer expiredByTimeout,// 🆕 타임아웃으로 만료 (0/1)
+
+        // === 기간 / 규모 / 속도 ===
         double bps,              // bits per second
         long bytes,              // 전체 바이트(len_delta 합계)
         long bytesReq,           // 요청 바이트

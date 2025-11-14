@@ -1,6 +1,6 @@
-package com.moa.api.detail.http.repository;
+package com.moa.api.detail.page.repository;
 
-import com.moa.api.detail.http.entity.HttpPageSample;
+import com.moa.api.detail.page.entity.HttpPageSample;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;

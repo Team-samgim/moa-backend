@@ -1,4 +1,4 @@
-package com.moa.api.detail.http.dto;
+package com.moa.api.detail.page.dto;
 
 import java.util.Map;
 

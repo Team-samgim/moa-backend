@@ -1,7 +1,7 @@
-package com.moa.api.detail.http.controller;
+package com.moa.api.detail.page.controller;
 
-import com.moa.api.detail.http.dto.HttpPageMetricsDTO;
-import com.moa.api.detail.http.service.HttpPageMetricsService;
+import com.moa.api.detail.page.dto.HttpPageMetricsDTO;
+import com.moa.api.detail.page.service.HttpPageMetricsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/details/http-page")
 @RequiredArgsConstructor
-public class HttpMetricsController {
+public class HttpPageMetricsController {
     private final HttpPageMetricsService service;
 
     @GetMapping("/{rowKey}")

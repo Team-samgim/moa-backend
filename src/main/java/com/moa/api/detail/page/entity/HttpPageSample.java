@@ -1,4 +1,4 @@
-package com.moa.api.detail.http.entity;
+package com.moa.api.detail.page.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

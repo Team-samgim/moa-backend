@@ -1,4 +1,4 @@
-package com.moa.api.detail.http.repository;
+package com.moa.api.detail.page.repository;
 
 public interface HttpPageAgg {
     // 식별
