@@ -63,24 +63,23 @@ public class ChartExportService {
         Integer presetId = presetRepository.insert(
                 memberId,
                 presetName,
-                PresetType.CHART.name(),   // ★ CHART
+                PresetType.CHART.name(),   // CHART
                 cfg,
-                false,                     // favorite=false
-                PresetOrigin.EXPORT        // ★ EXPORT
+                false,
+                PresetOrigin.EXPORT        // EXPORT
         );
         Preset presetRef = em.getReference(Preset.class, presetId);
 
         // 2) PNG 파일 생성 후 S3 업로드
         final String bucket = s3Props.getS3().getBucket();
-        final String basePrefix = normalizePrefix(s3Props.getS3().getPrefix());
+        final String rootPrefix = normalizePrefix(s3Props.getS3().getPrefix());
 
         String safeBase = Optional.ofNullable(req.getFileName())
                 .map(String::trim)
                 .filter(s -> !s.isBlank())
                 .orElseGet(() -> "chart_" + LocalDateTime.now().format(NAME_FMT));
 
-        // prefix 아래 chart/ 디렉토리 사용 (예: moa-export/chart/chart_2025...)
-        String objectKey = buildObjectKey(basePrefix + "chart/", safeBase + ".png");
+        String objectKey = buildObjectKey(rootPrefix, "chart", memberId, safeBase + ".png");
 
         byte[] pngBytes = Base64.getDecoder().decode(req.getImageBase64());
 
@@ -128,9 +127,21 @@ public class ChartExportService {
         return x.endsWith("/") ? x : x + "/";
     }
 
-    private String buildObjectKey(String prefix, String fileName) {
-        String p = normalizePrefix(prefix);
-        return p + fileName;
+    private String buildObjectKey(String rootPrefix, String typePrefix, Long memberId, String fileName) {
+        LocalDateTime now = LocalDateTime.now();
+        String datePath = now.format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
+        String uuid = java.util.UUID.randomUUID().toString();
+
+        String key = String.format(
+                "%s%s/%s/%d/%s/%s",
+                rootPrefix,   // app/exports/dev/
+                typePrefix,   // chart
+                datePath,     // 2025/11/14
+                memberId,     // 1, 2, ...
+                uuid,
+                fileName
+        );
+        return key.replace("//", "/");
     }
 
     private Long resolveMemberId() {

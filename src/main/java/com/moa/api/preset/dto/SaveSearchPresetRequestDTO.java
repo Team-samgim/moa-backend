@@ -1,5 +1,6 @@
 package com.moa.api.preset.dto;
 
+import com.moa.api.preset.entity.PresetOrigin;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -12,4 +13,5 @@ public class SaveSearchPresetRequestDTO {
     private String presetType;          // e.g. "SEARCH"
     private Map<String, Object> config; // required (현재 검색 상태)
     private Boolean favorite;           // optional
+    private PresetOrigin origin;        // USER, EXPORT
 }
