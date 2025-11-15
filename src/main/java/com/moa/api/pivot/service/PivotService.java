@@ -42,7 +42,7 @@ public class PivotService {
     }
 
     /* 시간 범위 → TimeWindow */
-    private TimeWindow resolveTimeWindow(PivotQueryRequestDTO.TimeDef time) {
+    public TimeWindow resolveTimeWindow(PivotQueryRequestDTO.TimeDef time) {
         if (time == null || time.getFromEpoch() == null || time.getToEpoch() == null) {
             long nowSec = Instant.now().getEpochSecond();
             return new TimeWindow(nowSec - 3600, nowSec);
