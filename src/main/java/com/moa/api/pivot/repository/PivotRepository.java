@@ -54,8 +54,4 @@ public interface PivotRepository {
             List<PivotQueryRequestDTO.FilterDef> filters,
             TimeWindow tw
     );
-
-    PivotChartResponseDTO getChart(PivotQueryContext ctx, PivotChartRequestDTO req);
-
-    PivotHeatmapTableResponseDTO getHeatmapTable(PivotQueryContext ctx, PivotHeatmapTableRequestDTO req);
 }
