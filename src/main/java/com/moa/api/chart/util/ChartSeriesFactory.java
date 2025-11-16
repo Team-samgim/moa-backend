@@ -1,7 +1,7 @@
 package com.moa.api.chart.util;
 
 import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
-import com.moa.api.pivot.dto.response.PivotChartResponseDTO;
+import com.moa.api.chart.dto.PivotChartResponseDTO;
 
 import java.util.ArrayList;
 import java.util.List;

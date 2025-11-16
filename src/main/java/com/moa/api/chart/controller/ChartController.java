@@ -5,10 +5,10 @@ import com.moa.api.chart.dto.CreateChartThumbnailRequestDTO;
 import com.moa.api.chart.entity.ChartThumbnail;
 import com.moa.api.chart.service.ChartService;
 import com.moa.api.chart.service.ChartThumbnailService;
-import com.moa.api.pivot.dto.request.PivotChartRequestDTO;
-import com.moa.api.pivot.dto.request.PivotHeatmapTableRequestDTO;
-import com.moa.api.pivot.dto.response.PivotChartResponseDTO;
-import com.moa.api.pivot.dto.response.PivotHeatmapTableResponseDTO;
+import com.moa.api.chart.dto.PivotChartRequestDTO;
+import com.moa.api.chart.dto.PivotHeatmapTableRequestDTO;
+import com.moa.api.chart.dto.PivotChartResponseDTO;
+import com.moa.api.chart.dto.PivotHeatmapTableResponseDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 

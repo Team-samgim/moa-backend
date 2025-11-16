@@ -1,9 +1,9 @@
 package com.moa.api.chart.repository;
 
-import com.moa.api.pivot.dto.request.PivotChartRequestDTO;
-import com.moa.api.pivot.dto.request.PivotHeatmapTableRequestDTO;
-import com.moa.api.pivot.dto.response.PivotChartResponseDTO;
-import com.moa.api.pivot.dto.response.PivotHeatmapTableResponseDTO;
+import com.moa.api.chart.dto.PivotChartRequestDTO;
+import com.moa.api.chart.dto.PivotHeatmapTableRequestDTO;
+import com.moa.api.chart.dto.PivotChartResponseDTO;
+import com.moa.api.chart.dto.PivotHeatmapTableResponseDTO;
 import com.moa.api.pivot.model.PivotQueryContext;
 
 public interface ChartRepository {

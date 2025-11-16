@@ -1,11 +1,11 @@
 package com.moa.api.chart.service;
 
+import com.moa.api.chart.dto.PivotChartRequestDTO;
+import com.moa.api.chart.dto.PivotChartResponseDTO;
+import com.moa.api.chart.dto.PivotHeatmapTableRequestDTO;
+import com.moa.api.chart.dto.PivotHeatmapTableResponseDTO;
 import com.moa.api.chart.repository.ChartRepository;
-import com.moa.api.pivot.dto.request.PivotChartRequestDTO;
-import com.moa.api.pivot.dto.request.PivotHeatmapTableRequestDTO;
 import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
-import com.moa.api.pivot.dto.response.PivotChartResponseDTO;
-import com.moa.api.pivot.dto.response.PivotHeatmapTableResponseDTO;
 import com.moa.api.pivot.model.PivotLayer;
 import com.moa.api.pivot.model.PivotQueryContext;
 import com.moa.api.pivot.model.TimeWindow;
