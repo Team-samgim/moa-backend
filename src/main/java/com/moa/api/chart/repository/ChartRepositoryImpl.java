@@ -1,13 +1,15 @@
 package com.moa.api.chart.repository;
 
+import com.moa.api.chart.dto.request.DrilldownTimeSeriesRequestDTO;
+import com.moa.api.chart.dto.response.DrilldownTimeSeriesResponseDTO;
 import com.moa.api.chart.util.ChartAxisResolver;
 import com.moa.api.chart.util.ChartSeriesFactory;
 import com.moa.api.chart.util.HeatmapTableLoader;
-import com.moa.api.chart.dto.PivotChartRequestDTO;
-import com.moa.api.chart.dto.PivotHeatmapTableRequestDTO;
+import com.moa.api.chart.dto.request.PivotChartRequestDTO;
+import com.moa.api.chart.dto.request.PivotHeatmapTableRequestDTO;
 import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
-import com.moa.api.chart.dto.PivotChartResponseDTO;
-import com.moa.api.chart.dto.PivotHeatmapTableResponseDTO;
+import com.moa.api.chart.dto.response.PivotChartResponseDTO;
+import com.moa.api.chart.dto.response.PivotHeatmapTableResponseDTO;
 import com.moa.api.pivot.exception.BadRequestException;
 import com.moa.api.pivot.model.PivotLayer;
 import com.moa.api.pivot.model.PivotQueryContext;
@@ -174,6 +176,135 @@ public class ChartRepositoryImpl implements ChartRepository {
         }
         if (metric == null || metric.getField() == null || metric.getField().isBlank()) {
             throw new BadRequestException("metric is required");
+        }
+    }
+
+    @Override
+    public DrilldownTimeSeriesResponseDTO getDrilldownTimeSeries(
+            PivotQueryContext ctx,
+            DrilldownTimeSeriesRequestDTO req
+    ) {
+        validateDrilldownRequest(req);
+
+        PivotQueryRequestDTO.ValueDef metricDef = req.getMetric();
+
+        var query = chartQueryBuilder.buildDrilldownTimeSeriesQuery(ctx, req);
+
+        Map<String, List<DrilldownTimeSeriesResponseDTO.Point>> seriesMap = new LinkedHashMap<>();
+        List<Double> allValues = new ArrayList<>();
+
+        Long[] globalMinTsHolder = new Long[1];
+        Long[] globalMaxTsHolder = new Long[1];
+
+        jdbc.query(query.sql(), query.params(), rs -> {
+            String rowKey = ValueUtils.normalizeKey(rs.getString("row_key"));
+
+            double tsSec = rs.getDouble("ts");
+            long tsMs = (long) Math.floor(tsSec * 1000);
+
+            double v = rs.getDouble("m");
+            if (rs.wasNull()) v = 0.0;
+
+            allValues.add(v);
+
+            seriesMap
+                    .computeIfAbsent(rowKey, k -> new ArrayList<>())
+                    .add(DrilldownTimeSeriesResponseDTO.Point.builder()
+                            .ts(tsMs)
+                            .value(v)
+                            .build()
+                    );
+
+            if (globalMinTsHolder[0] == null || tsMs < globalMinTsHolder[0]) {
+                globalMinTsHolder[0] = tsMs;
+            }
+            if (globalMaxTsHolder[0] == null || tsMs > globalMaxTsHolder[0]) {
+                globalMaxTsHolder[0] = tsMs;
+            }
+        });
+
+        Long globalMinTs = globalMinTsHolder[0];
+        Long globalMaxTs = globalMaxTsHolder[0];
+
+        if (seriesMap.isEmpty()) {
+            return DrilldownTimeSeriesResponseDTO.builder()
+                    .timeField(req.getTimeField())
+                    .metricField(metricDef.getField())
+                    .metricAgg(metricDef.getAgg())
+                    .globalMinTime(null)
+                    .globalMaxTime(null)
+                    .globalMedian(null)
+                    .series(Collections.emptyList())
+                    .seriesMedianMap(Collections.emptyMap())
+                    .build();
+        }
+
+        Double globalMedian = computeMedian(allValues);
+
+        Map<String, Double> seriesMedianMap = new LinkedHashMap<>();
+        List<DrilldownTimeSeriesResponseDTO.SeriesDef> seriesList = new ArrayList<>();
+
+        for (Map.Entry<String, List<DrilldownTimeSeriesResponseDTO.Point>> entry : seriesMap.entrySet()) {
+            String rowKey = entry.getKey();
+            List<DrilldownTimeSeriesResponseDTO.Point> points = entry.getValue();
+
+            List<Double> values = new ArrayList<>(points.size());
+            for (DrilldownTimeSeriesResponseDTO.Point p : points) {
+                values.add(p.getValue());
+            }
+
+            Double median = computeMedian(values);
+            seriesMedianMap.put(rowKey, median);
+
+            seriesList.add(
+                    DrilldownTimeSeriesResponseDTO.SeriesDef.builder()
+                            .rowKey(rowKey)
+                            .points(points)
+                            .median(median)
+                            .build()
+            );
+        }
+
+        return DrilldownTimeSeriesResponseDTO.builder()
+                .timeField(req.getTimeField())
+                .metricField(metricDef.getField())
+                .metricAgg(metricDef.getAgg())
+                .globalMinTime(globalMinTs)
+                .globalMaxTime(globalMaxTs)
+                .globalMedian(globalMedian)
+                .series(seriesList)
+                .seriesMedianMap(seriesMedianMap)
+                .build();
+    }
+
+    private void validateDrilldownRequest(DrilldownTimeSeriesRequestDTO req) {
+        if (req.getLayer() == null || req.getLayer().isBlank()) {
+            throw new BadRequestException("layer is required");
+        }
+        if (req.getColField() == null || req.getColField().isBlank()) {
+            throw new BadRequestException("colField is required");
+        }
+        if (req.getRowField() == null || req.getRowField().isBlank()) {
+            throw new BadRequestException("rowField is required");
+        }
+        if (req.getTimeField() == null || req.getTimeField().isBlank()) {
+            throw new BadRequestException("timeField is required");
+        }
+        if (req.getMetric() == null || req.getMetric().getField() == null ||
+                req.getMetric().getField().isBlank()) {
+            throw new BadRequestException("metric is required");
+        }
+    }
+
+    private Double computeMedian(List<Double> values) {
+        if (values == null || values.isEmpty()) return null;
+        List<Double> sorted = new ArrayList<>(values);
+        sorted.sort(Double::compareTo);
+        int n = sorted.size();
+        if (n % 2 == 1) {
+            return sorted.get(n / 2);
+        } else {
+            return (sorted.get(n / 2 - 1) + sorted.get(n / 2)) / 2.0;
         }
     }
 }

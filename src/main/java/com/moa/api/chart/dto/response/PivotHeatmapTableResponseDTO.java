@@ -1,4 +1,4 @@
-package com.moa.api.chart.dto;
+package com.moa.api.chart.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;

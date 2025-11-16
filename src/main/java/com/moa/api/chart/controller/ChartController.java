@@ -1,14 +1,16 @@
 package com.moa.api.chart.controller;
 
-import com.moa.api.chart.dto.ChartThumbnailResponseDTO;
-import com.moa.api.chart.dto.CreateChartThumbnailRequestDTO;
+import com.moa.api.chart.dto.request.DrilldownTimeSeriesRequestDTO;
+import com.moa.api.chart.dto.response.ChartThumbnailResponseDTO;
+import com.moa.api.chart.dto.request.CreateChartThumbnailRequestDTO;
+import com.moa.api.chart.dto.response.DrilldownTimeSeriesResponseDTO;
 import com.moa.api.chart.entity.ChartThumbnail;
 import com.moa.api.chart.service.ChartService;
 import com.moa.api.chart.service.ChartThumbnailService;
-import com.moa.api.chart.dto.PivotChartRequestDTO;
-import com.moa.api.chart.dto.PivotHeatmapTableRequestDTO;
-import com.moa.api.chart.dto.PivotChartResponseDTO;
-import com.moa.api.chart.dto.PivotHeatmapTableResponseDTO;
+import com.moa.api.chart.dto.request.PivotChartRequestDTO;
+import com.moa.api.chart.dto.request.PivotHeatmapTableRequestDTO;
+import com.moa.api.chart.dto.response.PivotChartResponseDTO;
+import com.moa.api.chart.dto.response.PivotHeatmapTableResponseDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,6 +30,13 @@ public class ChartController {
     @PostMapping("/heatmap-table")
     public PivotHeatmapTableResponseDTO heatmapTable(@RequestBody PivotHeatmapTableRequestDTO req) {
         return chartService.getHeatmapTable(req);
+    }
+
+    @PostMapping("/drilldown-time-series")
+    public DrilldownTimeSeriesResponseDTO drilldownTimeSeries(
+            @RequestBody DrilldownTimeSeriesRequestDTO req
+    ) {
+        return chartService.getDrilldownTimeSeries(req);
     }
 
     @PostMapping("/thumbnails")

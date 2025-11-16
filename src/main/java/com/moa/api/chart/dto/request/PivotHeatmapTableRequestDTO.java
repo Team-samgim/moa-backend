@@ -1,4 +1,4 @@
-package com.moa.api.chart.dto;
+package com.moa.api.chart.dto.request;
 
 import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
 import lombok.Data;

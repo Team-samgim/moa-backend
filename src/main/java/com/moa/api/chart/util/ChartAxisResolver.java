@@ -1,6 +1,6 @@
 package com.moa.api.chart.util;
 
-import com.moa.api.chart.dto.PivotChartRequestDTO;
+import com.moa.api.chart.dto.request.PivotChartRequestDTO;
 import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
 import com.moa.api.pivot.model.PivotQueryContext;
 import com.moa.api.pivot.util.PivotChartQueryBuilder;
