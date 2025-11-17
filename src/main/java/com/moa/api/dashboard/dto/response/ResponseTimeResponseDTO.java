@@ -4,12 +4,11 @@ package com.moa.api.dashboard.dto.response;
 // 위젯 6: 응답시간 통계
 // ============================================
 
+import java.sql.Timestamp;
+
 public record ResponseTimeResponseDTO(
-        Double minResponseTime,
+        Timestamp timestamp,
         Double avgResponseTime,
-        Double maxResponseTime,
-        Double p50ResponseTime,   // median
         Double p95ResponseTime,
-        Double p99ResponseTime,
-        Long totalRequests
+        Double p99ResponseTime
 ) {}
