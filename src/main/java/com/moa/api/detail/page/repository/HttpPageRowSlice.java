@@ -91,7 +91,7 @@ public interface HttpPageRowSlice {
     Long getPageTcpCntRes();
     Long getPageErrorCnt();
 
-    // ===== TCP 에러 카운트 (29개) =====
+    // ===== TCP 에러 카운트 (30개) =====
     Long getRetransmissionCnt();
     Long getRetransmissionCntReq();
     Long getRetransmissionCntRes();
@@ -249,7 +249,7 @@ public interface HttpPageRowSlice {
     String getDomesticSub2NameReq();
     String getDomesticSub2NameRes();
 
-    // ===== HTTP 정보 (17개) =====
+    // ===== HTTP 정보 (18개) =====
     String getNdpiProtocolApp();
     String getNdpiProtocolMaster();
     String getSensorDeviceName();

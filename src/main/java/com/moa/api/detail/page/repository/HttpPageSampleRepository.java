@@ -85,7 +85,7 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             page_rtt_ack_cnt_req,
             page_rtt_ack_cnt_res,
             
-            -- 페이지 카운트 (14개)
+            -- 페이지 카운트 (15개)
             page_req_making_cnt,
             page_http_cnt,
             page_http_cnt_req,
@@ -100,8 +100,9 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             page_tcp_cnt,
             page_tcp_cnt_req,
             page_tcp_cnt_res,
+            page_error_cnt,
             
-            -- TCP 에러 카운트 (23개) ← 29개에서 23개로 수정!
+            -- TCP 에러 카운트 (30개)
             retransmission_cnt,
             retransmission_cnt_req,
             retransmission_cnt_res,
@@ -126,7 +127,12 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             window_full_cnt,
             window_full_cnt_req,
             window_full_cnt_res,
-            -- tcp_error_cnt, tcp_error_len 제거됨 (트랜잭션 상태 섹션으로 이동)
+            tcp_error_cnt,
+            tcp_error_cnt_req,
+            tcp_error_cnt_res,
+            tcp_error_len,
+            tcp_error_len_req,
+            tcp_error_len_res,
             
             -- HTTP 메소드 (20개)
             req_method_get_cnt,
@@ -162,7 +168,7 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             res_code_5xx_cnt AS resCode5xxCnt,
             res_code_oth_cnt AS resCodeOthCnt,
             
-            -- 트랜잭션 상태 (18개) ← 11개에서 18개로 수정!
+            -- 트랜잭션 상태 (11개)
             stopped_transaction_cnt,
             stopped_transaction_cnt_req,
             stopped_transaction_cnt_res,
@@ -174,13 +180,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             timeout_cnt_res,
             ts_page_rto_cnt_req,
             ts_page_rto_cnt_res,
-            tcp_error_cnt,
-            tcp_error_cnt_req,
-            tcp_error_cnt_res,
-            tcp_error_len,
-            tcp_error_len_req,
-            tcp_error_len_res,
-            page_error_cnt,
             
             -- Content Type (10개)
             content_type_html_cnt_req,
@@ -261,7 +260,7 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             domestic_sub2_name_req,
             domestic_sub2_name_res,
             
-            -- HTTP 정보 (17개)
+            -- HTTP 정보 (18개)
             ndpi_protocol_app,
             ndpi_protocol_master,
             sensor_device_name,
