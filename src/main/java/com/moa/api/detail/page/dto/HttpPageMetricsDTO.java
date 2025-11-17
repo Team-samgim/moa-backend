@@ -132,6 +132,12 @@ public record HttpPageMetricsDTO(
      * TCP 품질
      */
     public record TcpQuality(
+            long tcpSessionCnt,
+            long tcpErrorSessionCnt,
+            Double tcpErrorSessionRatio,
+            Double tcpErrorCntRatio,
+            Double tcpErrorLenRatio,
+
             long tcpErrorCnt,
             long tcpErrorCntReq,
             long tcpErrorCntRes,
