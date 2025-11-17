@@ -106,12 +106,38 @@ public class SqlSupport {
                         MapSqlParameterSource ps) {
 
         StringBuilder sb = new StringBuilder();
-        String tcol = col(layer, timeColumn);
+
+        // 0) 시간 컬럼 이름 정규화 (양쪽 쿼트 제거)
+        String rawTimeCol = timeColumn;
+        if (rawTimeCol != null
+                && rawTimeCol.startsWith("\"")
+                && rawTimeCol.endsWith("\"")
+                && rawTimeCol.length() > 1) {
+            rawTimeCol = rawTimeCol.substring(1, rawTimeCol.length() - 1);
+        }
+
+        // 1) 레이어 → 테이블 이름
+        String tableName = table(layer);
+
+        // 2) 실제 컬럼 타입 정보 조회
+        Map<String, String> typeMap = columnTypeCache.computeIfAbsent(
+                tableName,
+                this::loadColumnTypes
+        );
+
+        if (!typeMap.containsKey(rawTimeCol)) {
+            // 진짜 테이블에 없는 경우에만 예외
+            throw new ColumnNotAllowedException(rawTimeCol);
+        }
+
+        // 3) where절에 쓸 컬럼 표현은 우리가 다시 쿼트해서 사용
+        String tcol = "\"" + rawTimeCol + "\"";
 
         sb.append(" WHERE ").append(tcol).append(" BETWEEN :from AND :to ");
-        ps.addValue("from", tw.getFromEpoch());  // double
-        ps.addValue("to", tw.getToEpoch());      // double
+        ps.addValue("from", tw.getFromEpoch());
+        ps.addValue("to", tw.getToEpoch());
 
+        // 이하 기존 필터 처리 로직 그대로
         if (filters == null || filters.isEmpty()) return sb.toString();
 
         int idx = 0;
