@@ -38,14 +38,4 @@ public class PivotController {
     ) {
         return pivotService.getRowGroupItems(req);
     }
-
-    @PostMapping("/chart")
-    public PivotChartResponseDTO chart(@RequestBody PivotChartRequestDTO req) {
-        return pivotService.getChart(req);
-    }
-
-    @PostMapping("/heatmap-table")
-    public PivotHeatmapTableResponseDTO heatmapTable(@RequestBody PivotHeatmapTableRequestDTO req) {
-        return pivotService.getHeatmapTable(req);
-    }
 }

@@ -1,6 +1,6 @@
 package com.moa.api.chart.service;
 
-import com.moa.api.chart.dto.CreateChartThumbnailRequestDTO;
+import com.moa.api.chart.dto.request.CreateChartThumbnailRequestDTO;
 import com.moa.api.chart.entity.ChartThumbnail;
 import com.moa.api.chart.repository.ChartThumbnailRepository;
 import com.moa.api.export.entity.ExportFile;

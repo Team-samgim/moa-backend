@@ -1,5 +1,6 @@
-package com.moa.api.pivot.dto.request;
+package com.moa.api.chart.dto.request;
 
+import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
 import lombok.Data;
 
 import java.util.List;

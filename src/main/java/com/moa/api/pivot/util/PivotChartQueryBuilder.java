@@ -1,6 +1,7 @@
 package com.moa.api.pivot.util;
 
-import com.moa.api.pivot.dto.request.PivotChartRequestDTO;
+import com.moa.api.chart.dto.request.DrilldownTimeSeriesRequestDTO;
+import com.moa.api.chart.dto.request.PivotChartRequestDTO;
 import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
 import com.moa.api.pivot.model.PivotLayer;
 import com.moa.api.pivot.model.PivotQueryContext;
@@ -11,13 +12,16 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
 public class PivotChartQueryBuilder {
 
-    private final SqlSupport sql;
+    private final SqlSupport sqlSupport;
+    private final PivotWhereBuilder whereBuilder;
 
     /**
      * TopN 축 값 조회 쿼리 생성
@@ -38,7 +42,7 @@ public class PivotChartQueryBuilder {
         String metricExpr = buildMetricExpr(metricDef, ctx.getLayer());
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layerCode, timeField, tw, baseFilters, ps);
+        String where = sqlSupport.where(layerCode, timeField, tw, baseFilters, ps);
         ps.addValue("lim", limit);
 
         String sqlText = String.format("""
@@ -91,7 +95,7 @@ public class PivotChartQueryBuilder {
         finalFilters.add(yFilter);
 
         MapSqlParameterSource ps = new MapSqlParameterSource();
-        String where = sql.where(layerCode, timeField, tw, finalFilters, ps);
+        String where = sqlSupport.where(layerCode, timeField, tw, finalFilters, ps);
 
         String sqlText = String.format("""
             SELECT %s AS c,
@@ -114,7 +118,7 @@ public class PivotChartQueryBuilder {
         if ("count".equals(agg)) {
             return "COUNT(*)";
         } else {
-            String valCol = sql.col(layer.getCode(), v.getField());
+            String valCol = sqlSupport.col(layer.getCode(), v.getField());
             return switch (agg) {
                 case "avg" -> "AVG(" + valCol + ")";
                 case "min" -> "MIN(" + valCol + ")";
@@ -128,4 +132,90 @@ public class PivotChartQueryBuilder {
      * 쿼리와 파라미터를 함께 담는 DTO
      */
     public record QueryWithParams(String sql, MapSqlParameterSource params) {}
+
+    public QueryWithParams buildDrilldownTimeSeriesQuery(
+            PivotQueryContext ctx,
+            DrilldownTimeSeriesRequestDTO req
+    ) {
+        String layerKey = ctx.getLayer().name();
+
+        String table      = sqlSupport.table(layerKey);
+        String rowColumn  = sqlSupport.col(layerKey, req.getRowField());
+        String timeColumn = resolveTimeColumn(layerKey, req.getTimeField());
+        String metricCol  = sqlSupport.col(layerKey, req.getMetric().getField());
+
+        String metricExpr = resolveMetricExpression(req.getMetric(), metricCol);
+
+        // 1) 필터 merge (ctx 기본 필터 + req 필터 + 드릴다운 전용 필터)
+        List<PivotQueryRequestDTO.FilterDef> mergedFilters = new ArrayList<>();
+        if (ctx.getFilters() != null) {
+            mergedFilters.addAll(ctx.getFilters());
+        }
+        if (req.getFilters() != null) {
+            mergedFilters.addAll(req.getFilters());
+        }
+
+        // colField = selectedColKey
+        if (req.getSelectedColKey() != null && !req.getSelectedColKey().isBlank()) {
+            PivotQueryRequestDTO.FilterDef colFilter = new PivotQueryRequestDTO.FilterDef();
+            colFilter.setField(req.getColField());
+            colFilter.setOp("=");                         // "="
+            colFilter.setValue(req.getSelectedColKey());  // 단일 값
+            mergedFilters.add(colFilter);
+        }
+
+        // rowField IN (:rowKeys)
+        if (req.getRowKeys() != null && !req.getRowKeys().isEmpty()) {
+            PivotQueryRequestDTO.FilterDef rowFilter = new PivotQueryRequestDTO.FilterDef();
+            rowFilter.setField(req.getRowField());
+            rowFilter.setOp("IN");
+            rowFilter.setValue(req.getRowKeys());
+            mergedFilters.add(rowFilter);
+        }
+
+        // 2) whereBuilder + SqlSupport 로 where + params 생성
+        var wc = whereBuilder.build(
+                layerKey,
+                timeColumn,                   // 시간 컬럼
+                ctx.getTimeWindow(),          // TimeWindow
+                mergedFilters                 // 필터 총합
+        );
+
+        String where = wc.getWhere();         // " WHERE ..." 포함
+        MapSqlParameterSource ps = wc.getParams();
+
+        String sqlText = """
+            SELECT %s AS row_key,
+                   %s AS ts,
+                   %s AS m
+            FROM %s
+            %s
+            GROUP BY row_key, ts
+            ORDER BY ts ASC
+            """.formatted(rowColumn, timeColumn, metricExpr, table, where);
+
+        return new QueryWithParams(sqlText, ps);
+    }
+
+    private String resolveTimeColumn(String layerKey, String overrideField) {
+        String timeField;
+        if (overrideField != null && !overrideField.isBlank()) {
+            timeField = overrideField;
+        } else {
+            timeField = com.moa.api.pivot.model.PivotLayer.from(layerKey).getDefaultTimeField();
+        }
+
+        return sqlSupport.col(layerKey, timeField);  // 실제 SQL에서 쓸 컬럼명
+    }
+
+    private String resolveMetricExpression(PivotQueryRequestDTO.ValueDef metric, String metricCol) {
+        String agg = metric.getAgg();
+        if (agg == null || agg.isBlank()) {
+            return metricCol;
+        }
+        String upper = agg.toUpperCase();
+        // 필요하면 화이트리스트로 제한
+        // if (!List.of("SUM","AVG","COUNT","MAX","MIN").contains(upper)) { ... }
+        return upper + "(" + metricCol + ")";
+    }
 }
