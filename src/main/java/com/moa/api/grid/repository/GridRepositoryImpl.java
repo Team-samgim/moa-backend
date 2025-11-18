@@ -96,16 +96,23 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
         t = t == null ? "" : t.toLowerCase();
         String c = (colName == null) ? "" : colName.toLowerCase();
 
+        // 1) 특수 타입 우선
+        if (t.contains("inet") || c.contains("ip")) return "ip";
+        if (t.contains("mac")  || c.contains("mac")) return "mac";
+
+        // 2) port 계열은 카테고리(string)로 간주
+        if (c.contains("port")) return "string";
+
+        // 3) 나머지 일반 타입
         if (t.contains("char") || t.contains("text") || t.contains("varchar")) return "string";
         if (t.contains("int") || t.contains("numeric") || t.contains("decimal")
                 || t.contains("float") || t.contains("double") || t.contains("real")) return "number";
-        if (t.contains("date") || t.contains("time") || t.contains("timestamp")) return "date"; // 프론트 규약상 date로 처리
+        if (t.contains("date") || t.contains("time") || t.contains("timestamp")) return "date";
         if (t.contains("bool")) return "boolean";
-        if (t.contains("inet") || c.contains("ip")) return "ip";
-        if (t.contains("mac") || c.contains("mac")) return "mac";
         if (t.contains("json")) return "json";
         return "string";
     }
+
 
     // === 메타 빌더 & 캐시 ===
     private Map<String, String> buildFrontendTypeMap(String layer) {
@@ -147,16 +154,6 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
     public Map<String, String> getTemporalKindMap(String layer) {
         String key = (layer == null ? "ethernet" : layer).toLowerCase();
         return temporalKindCache.computeIfAbsent(key, this::buildTemporalKindMap);
-    }
-
-    /**
-     * 필요시 캐시 무효화 훅
-     */
-    public void evictCaches(String layer) {
-        if (layer == null) return;
-        String key = layer.toLowerCase();
-        frontendTypeCache.remove(key);
-        temporalKindCache.remove(key);
     }
 
     @Override
