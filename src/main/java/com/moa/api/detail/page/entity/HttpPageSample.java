@@ -7,6 +7,8 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
+
 /**
  * HTTP Page Sample Entity
  * http_page_sample 테이블 매핑
@@ -49,6 +51,7 @@ public class HttpPageSample {
 
     @Column(name = "page_session_cnt")
     private Long pageSessionCnt;
+
 
     // 나머지 232개 컬럼은 Repository의 @Query에서 직접 조회
     // HttpPageRowSlice 인터페이스로 매핑됨
