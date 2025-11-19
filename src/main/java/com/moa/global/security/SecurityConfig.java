@@ -42,6 +42,8 @@ public class SecurityConfig {
                     // AWS Lambda 호출 api
                     .requestMatchers(HttpMethod.POST, "/api/chart-thumbnails").permitAll()
                     .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                    // data 전송 받는 api
+                    .requestMatchers("/internal/**").permitAll()
                     .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
