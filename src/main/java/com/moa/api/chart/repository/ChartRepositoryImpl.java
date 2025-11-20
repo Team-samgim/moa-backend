@@ -51,6 +51,15 @@ public class ChartRepositoryImpl implements ChartRepository {
         List<PivotQueryRequestDTO.FilterDef> baseFilters =
                 req.getFilters() != null ? new ArrayList<>(req.getFilters()) : new ArrayList<>();
 
+        // 레이아웃 설정 확인
+        Integer chartsPerRow = req.getLayout() != null ? req.getLayout().getChartsPerRow() : null;
+
+        // 다중 차트 모드
+        if (chartsPerRow != null && chartsPerRow > 0) {
+            return getMultipleCharts(ctx, colDef, rowDef, metricDef, baseFilters, chartsPerRow);
+        }
+
+        // ===== 기존 단일 차트 로직 =====
         boolean isMultiplePie = "multiplePie".equalsIgnoreCase(req.getChartType());
         int maxColCount = isMultiplePie ? 6 : 5;
         int maxRowCount = 5;
@@ -91,6 +100,127 @@ public class ChartRepositoryImpl implements ChartRepository {
                 .yCategories(yCategories)
                 .series(Collections.singletonList(seriesDef))
                 .build();
+    }
+
+    /**
+     * 다중 차트 생성 로직
+     * Column 축의 각 값에 대해 별도의 차트를 생성
+     */
+    private PivotChartResponseDTO getMultipleCharts(
+            PivotQueryContext ctx,
+            PivotChartRequestDTO.AxisDef colDef,
+            PivotChartRequestDTO.AxisDef rowDef,
+            PivotQueryRequestDTO.ValueDef metricDef,
+            List<PivotQueryRequestDTO.FilterDef> baseFilters,
+            int chartsPerRow
+    ) {
+        // Column 축 카테고리 결정 (최대 개수 = chartsPerRow * 2)
+        int maxColCount = chartsPerRow * 2;
+        int maxRowCount = 5;
+
+        List<String> columnCategories = chartAxisResolver.resolveAxisKeys(
+                ctx, colDef, metricDef, baseFilters, maxColCount);
+
+        if (columnCategories.isEmpty()) {
+            return PivotChartResponseDTO.builder()
+                    .xField(colDef.getField())
+                    .yField(rowDef.getField())
+                    .charts(Collections.emptyList())
+                    .build();
+        }
+
+        List<PivotChartResponseDTO.ChartData> chartDataList = new ArrayList<>();
+
+        // 각 Column 값에 대해 별도의 차트 생성
+        for (String columnKey : columnCategories) {
+            // 이 Column 값에 대한 필터 추가
+            List<PivotQueryRequestDTO.FilterDef> columnFilters = new ArrayList<>(baseFilters);
+            PivotQueryRequestDTO.FilterDef colFilter = new PivotQueryRequestDTO.FilterDef();
+            colFilter.setField(colDef.getField());
+            colFilter.setOp("=");
+            colFilter.setValue(columnKey);
+            columnFilters.add(colFilter);
+
+            // 이 Column에 대한 Row 축 TOP-N 결정
+            List<String> yCategories = chartAxisResolver.resolveAxisKeys(
+                    ctx, rowDef, metricDef, columnFilters, maxRowCount);
+
+            if (yCategories.isEmpty()) {
+                continue;
+            }
+
+            // 데이터 조회 (해당 Column + Row 조합)
+            var query = chartQueryBuilder.buildSingleColumnChartDataQuery(
+                    ctx, colDef.getField(), columnKey, rowDef.getField(),
+                    metricDef, yCategories, columnFilters
+            );
+
+            Map<String, Double> valueMap = new HashMap<>();
+            jdbc.query(query.sql(), query.params(), rs -> {
+                String yKey = ValueUtils.normalizeKey(rs.getString("r"));
+                double v = rs.getDouble("m");
+                if (rs.wasNull()) v = 0.0;
+                valueMap.put(yKey, v);
+            });
+
+            // ⚠️ 문제 부분: values를 2차원 배열로 만들어야 함!
+            // 프론트엔드는 values[yIndex][xIndex] 형태를 기대
+            // 다중 차트에서는 xIndex가 항상 0 (Column이 1개이므로)
+            List<List<Double>> valuesMatrix = new ArrayList<>();
+            for (String yKey : yCategories) {
+                List<Double> rowValues = new ArrayList<>();
+                // xIndex = 0 위치에 값 넣기
+                rowValues.add(valueMap.getOrDefault(yKey, 0.0));
+                valuesMatrix.add(rowValues);
+            }
+
+            log.info("Column: {}, yCategories: {}, valuesMatrix size: {}",
+                    columnKey, yCategories, valuesMatrix.size());
+            log.info("valuesMatrix: {}", valuesMatrix);
+
+            PivotChartResponseDTO.SeriesDef seriesDef =
+                    ChartSeriesFactory.buildSingleSeries(metricDef, valuesMatrix);
+
+            log.info("SeriesDef created - id: {}, label: {}, values: {}",
+                    seriesDef.getId(), seriesDef.getLabel(), seriesDef.getValues());
+
+            PivotChartResponseDTO.ChartData chartData = PivotChartResponseDTO.ChartData.builder()
+                    .columnKey(columnKey)
+                    .yField(rowDef.getField())
+                    .yCategories(yCategories)
+                    .series(Collections.singletonList(seriesDef))
+                    .build();
+
+            log.info("ChartData built - columnKey: {}, series size: {}, first series: {}",
+                    chartData.getColumnKey(),
+                    chartData.getSeries() != null ? chartData.getSeries().size() : "null",
+                    chartData.getSeries() != null && !chartData.getSeries().isEmpty() ? chartData.getSeries().get(0) : "empty");
+
+            chartDataList.add(chartData);
+        }
+
+
+        return PivotChartResponseDTO.builder()
+                .xField(colDef.getField())
+                .yField(rowDef.getField())
+                .charts(chartDataList)
+                .build();
+    }
+
+    private void validateChartRequest(
+            PivotChartRequestDTO.AxisDef colDef,
+            PivotChartRequestDTO.AxisDef rowDef,
+            PivotQueryRequestDTO.ValueDef metricDef
+    ) {
+        if (colDef == null || colDef.getField() == null || colDef.getField().isBlank()) {
+            throw new BadRequestException("col.field is required");
+        }
+        if (rowDef == null || rowDef.getField() == null || rowDef.getField().isBlank()) {
+            throw new BadRequestException("row.field is required");
+        }
+        if (metricDef == null || metricDef.getField() == null || metricDef.getField().isBlank()) {
+            throw new BadRequestException("metric.field is required");
+        }
     }
 
     @Override
@@ -149,22 +279,6 @@ public class ChartRepositoryImpl implements ChartRepository {
                 .pageMin(cellResult.pageMin())
                 .pageMax(cellResult.pageMax())
                 .build();
-    }
-
-    private void validateChartRequest(
-            PivotChartRequestDTO.AxisDef colDef,
-            PivotChartRequestDTO.AxisDef rowDef,
-            PivotQueryRequestDTO.ValueDef metricDef
-    ) {
-        if (colDef == null || colDef.getField() == null || colDef.getField().isBlank()) {
-            throw new BadRequestException("col.field is required");
-        }
-        if (rowDef == null || rowDef.getField() == null || rowDef.getField().isBlank()) {
-            throw new BadRequestException("row.field is required");
-        }
-        if (metricDef == null || metricDef.getField() == null || metricDef.getField().isBlank()) {
-            throw new BadRequestException("metric.field is required");
-        }
     }
 
     private void validateHeatmapRequest(String colField, String rowField, PivotQueryRequestDTO.ValueDef metric) {

@@ -60,6 +60,7 @@ public class PivotChartQueryBuilder {
 
     /**
      * 차트 데이터 조회 쿼리 생성 (X축, Y축, 메트릭값)
+     * 단일 차트 모드에서 사용
      */
     public QueryWithParams buildChartDataQuery(
             PivotQueryContext ctx,
@@ -105,6 +106,49 @@ public class PivotChartQueryBuilder {
             %s
             GROUP BY %s, %s
             """, colExpr, rowExpr, metricExpr, table, where, colExpr, rowExpr);
+
+        return new QueryWithParams(sqlText, ps);
+    }
+
+    /**
+     * 단일 Column 값에 대한 차트 데이터 조회 쿼리 생성
+     * 다중 차트 모드에서 사용
+     */
+    public QueryWithParams buildSingleColumnChartDataQuery(
+            PivotQueryContext ctx,
+            String colField,
+            String colValue,
+            String rowField,
+            PivotQueryRequestDTO.ValueDef metricDef,
+            List<String> yCategories,
+            List<PivotQueryRequestDTO.FilterDef> filters
+    ) {
+        String layerCode = ctx.getLayer().getCode();
+        String table = ctx.table();
+        String timeField = ctx.getTimeField();
+        TimeWindow tw = ctx.getTimeWindow();
+
+        String rowExpr = ctx.col(rowField);
+        String metricExpr = buildMetricExpr(metricDef, ctx.getLayer());
+
+        // Row IN (...) 필터 추가
+        List<PivotQueryRequestDTO.FilterDef> finalFilters = new ArrayList<>(filters);
+        PivotQueryRequestDTO.FilterDef yFilter = new PivotQueryRequestDTO.FilterDef();
+        yFilter.setField(rowField);
+        yFilter.setOp("IN");
+        yFilter.setValue(new ArrayList<>(yCategories));
+        finalFilters.add(yFilter);
+
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sqlSupport.where(layerCode, timeField, tw, finalFilters, ps);
+
+        String sqlText = String.format("""
+            SELECT %s AS r,
+                   %s AS m
+            FROM %s
+            %s
+            GROUP BY %s
+            """, rowExpr, metricExpr, table, where, rowExpr);
 
         return new QueryWithParams(sqlText, ps);
     }
