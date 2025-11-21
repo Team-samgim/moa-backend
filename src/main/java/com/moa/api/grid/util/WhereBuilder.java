@@ -10,6 +10,13 @@ import java.util.*;
 
 import static com.moa.api.grid.util.JsonSupport.*;
 
+/**
+ * WHERE 절 빌더
+ *
+ * 개선사항:
+ * 1. TemporalExprFactory 생성자 주입
+ * 2. StringBuilder → SqlDTO.join() 활용
+ */
 public class WhereBuilder {
     private final JsonSupport json;
     private final TypeResolver typeResolver;
@@ -18,8 +25,8 @@ public class WhereBuilder {
     private final ConditionBuilderRegistry registry;
     private final SearchConditionMapper searchMapper;
 
-    public WhereBuilder(ObjectMapper mapper) {
-        this.temporal = new TemporalExprFactory();
+    public WhereBuilder(ObjectMapper mapper, TemporalExprFactory temporal) {
+        this.temporal = temporal;
         this.json = new JsonSupport(mapper);
         this.typeResolver = new TypeResolver();
         this.inBuilder = new InClauseBuilder(temporal);
@@ -36,86 +43,19 @@ public class WhereBuilder {
                                   Map<String, String> typeMap,
                                   Map<String, String> rawTemporalKindMap) {
         if (filterModel == null || filterModel.isBlank()) return SqlDTO.empty();
+
         try {
             JsonNode filters = json.parse(filterModel);
             List<SqlDTO> clauses = new ArrayList<>();
 
             for (Iterator<String> it = filters.fieldNames(); it.hasNext(); ) {
                 String field = it.next();
-                JsonNode node = filters.get(field);
-                String mode = node.path("mode").asText("");
-                String safeField = SqlIdentifier.safeFieldName(field);
-                String type = typeResolver.resolveForField(field, node, typeMap);
-
-                if ("checkbox".equals(mode)) {
-                    ArrayNode values = (ArrayNode) node.get("values");
-                    if (values != null && values.size() > 0) {
-                        if ("date".equalsIgnoreCase(type)) {
-                            String rawKind = Optional.ofNullable(rawTemporalKindMap).map(m -> m.get(safeField)).orElse("timestamp");
-                            clauses.add(inBuilder.dateIn("t", safeField, values, rawKind));
-                        } else {
-                            clauses.add(inBuilder.inWithType("t", safeField, values, type));
-                        }
-                    }
-                } else if ("condition".equals(mode)) {
-                    ArrayNode conditions = (ArrayNode) node.get("conditions");
-                    ArrayNode logicOps = (ArrayNode) node.get("logicOps");
-                    List<SqlDTO> exprs = new ArrayList<>();
-
-                    for (int i = 0; i < conditions.size(); i++) {
-                        JsonNode cond = conditions.get(i);
-                        String op = cond.path("op").asText("");
-                        String rawTemporalKind = Optional.ofNullable(rawTemporalKindMap).map(m -> m.getOrDefault(safeField, "timestamp")).orElse("timestamp");
-
-                        SqlDTO expr;
-                        if ("between".equalsIgnoreCase(op)) {
-                            if ("date".equalsIgnoreCase(type)) {
-                                String v1 = textOrNull(cond, "val1", "from");
-                                String v2 = textOrNull(cond, "val2", "to");
-                                if (v1 != null && v2 != null) {
-                                    String kstDate = temporal.toDateExpr("t", safeField, rawTemporalKind);
-                                    expr = SqlDTO.of(kstDate + " BETWEEN ?::date AND ?::date", List.of(v1, v2));
-                                } else continue;
-                            } else if ("number".equalsIgnoreCase(type)) {
-                                String a = textOrNull(cond, "min", "val1");
-                                String b = textOrNull(cond, "max", "val2");
-                                if (a != null && b != null) {
-                                    expr = SqlDTO.of(SqlIdentifier.quoteWithAlias("t", safeField) + " BETWEEN ? AND ?", List.of(parseNum(a), parseNum(b)));
-                                } else continue;
-                            } else {
-                                String a = cond.path("val1").asText(null);
-                                String b = cond.path("val2").asText(null);
-                                if (a != null && b != null) {
-                                    expr = SqlDTO.of(SqlIdentifier.quoteWithAlias("t", safeField) + "::text BETWEEN ? AND ?", List.of(a, b));
-                                } else continue;
-                            }
-                        } else {
-                            String val = cond.path("val").asText(null);
-                            if (val == null || val.isBlank()) continue;
-                            expr = registry.build("t", type, safeField, op, val, rawTemporalKind);
-                            if (expr.isBlank()) continue;
-                        }
-                        exprs.add(expr);
-                    }
-
-                    if (!exprs.isEmpty()) {
-                        StringBuilder whereExpr = new StringBuilder();
-                        List<Object> args = new ArrayList<>();
-                        for (int i = 0; i < exprs.size(); i++) {
-                            if (i == 0) {
-                                whereExpr.append(exprs.get(i).sql);
-                                args.addAll(exprs.get(i).args);
-                            } else {
-                                String logic = (logicOps != null && logicOps.size() > i - 1)
-                                        ? logicOps.get(i - 1).asText("AND") : "AND";
-                                whereExpr.append(' ').append(logic).append(' ').append(exprs.get(i).sql);
-                                args.addAll(exprs.get(i).args);
-                            }
-                        }
-                        clauses.add(new SqlDTO("(" + whereExpr + ")", args));
-                    }
+                SqlDTO clause = buildFieldClause(filters.get(field), field, typeMap, rawTemporalKindMap);
+                if (!clause.isBlank()) {
+                    clauses.add(clause);
                 }
             }
+
             return SqlDTO.join(" AND ", clauses);
         } catch (Exception e) {
             return SqlDTO.empty();
@@ -126,127 +66,279 @@ public class WhereBuilder {
                                            Map<String, String> typeMap,
                                            Map<String, String> rawTemporalKindMap) {
         if (filterModel == null || filterModel.isBlank()) return SqlDTO.empty();
+
         try {
             JsonNode filters = json.parse(filterModel);
             String excludeSafe = SqlIdentifier.safeFieldName(excludeField);
-
             List<SqlDTO> clauses = new ArrayList<>();
+
             for (Iterator<String> it = filters.fieldNames(); it.hasNext(); ) {
                 String field = it.next();
                 String safeField = SqlIdentifier.safeFieldName(field);
+
                 if (safeField.equals(excludeSafe)) continue;
 
-                JsonNode node = filters.get(field);
-                String mode = node.path("mode").asText("");
-                String type = typeResolver.resolveForField(field, node, typeMap);
-
-                if ("checkbox".equals(mode)) {
-                    ArrayNode values = (ArrayNode) node.get("values");
-                    if (values != null && values.size() > 0) {
-                        if ("date".equalsIgnoreCase(type)) {
-                            String rawKind = Optional.ofNullable(rawTemporalKindMap).map(m -> m.get(safeField)).orElse("timestamp");
-                            clauses.add(inBuilder.dateIn("t", safeField, values, rawKind));
-                        } else {
-                            clauses.add(inBuilder.inWithType("t", safeField, values, type));
-                        }
-                    }
-                } else if ("condition".equals(mode)) {
-                    ArrayNode conditions = (ArrayNode) node.get("conditions");
-                    ArrayNode logicOps = (ArrayNode) node.get("logicOps");
-                    List<SqlDTO> exprs = new ArrayList<>();
-
-                    for (int i = 0; i < conditions.size(); i++) {
-                        JsonNode cond = conditions.get(i);
-                        String op = cond.path("op").asText();
-                        String val = cond.path("val").asText();
-                        if (val == null || val.isBlank()) continue;
-                        String rawTemporalKind = Optional.ofNullable(rawTemporalKindMap).map(m -> m.getOrDefault(safeField, "timestamp")).orElse("timestamp");
-                        SqlDTO expr = registry.build("t", type, safeField, op, val, rawTemporalKind);
-                        if (!expr.isBlank()) exprs.add(expr);
-                    }
-
-                    if (!exprs.isEmpty()) {
-                        StringBuilder whereExpr = new StringBuilder();
-                        List<Object> args = new ArrayList<>();
-                        for (int i = 0; i < exprs.size(); i++) {
-                            if (i == 0) {
-                                whereExpr.append(exprs.get(i).sql);
-                                args.addAll(exprs.get(i).args);
-                            } else {
-                                String logic = (logicOps != null && logicOps.size() > i - 1)
-                                        ? logicOps.get(i - 1).asText("AND") : "AND";
-                                whereExpr.append(' ').append(logic).append(' ').append(exprs.get(i).sql);
-                                args.addAll(exprs.get(i).args);
-                            }
-                        }
-                        clauses.add(new SqlDTO("(" + whereExpr + ")", args));
-                    }
+                SqlDTO clause = buildFieldClause(filters.get(field), field, typeMap, rawTemporalKindMap);
+                if (!clause.isBlank()) {
+                    clauses.add(clause);
                 }
             }
+
             return SqlDTO.join(" AND ", clauses);
         } catch (Exception e) {
             return SqlDTO.empty();
         }
     }
 
+    /**
+     * 필드별 조건 생성 (checkbox 또는 condition 모드)
+     */
+    private SqlDTO buildFieldClause(JsonNode node, String field,
+                                    Map<String, String> typeMap,
+                                    Map<String, String> rawTemporalKindMap) {
+        String mode = node.path("mode").asText("");
+        String safeField = SqlIdentifier.safeFieldName(field);
+        String type = typeResolver.resolveForField(field, node, typeMap);
+
+        return switch (mode) {
+            case "checkbox" -> buildCheckboxClause(node, safeField, type, rawTemporalKindMap);
+            case "condition" -> buildConditionClause(node, safeField, type, rawTemporalKindMap);
+            default -> SqlDTO.empty();
+        };
+    }
+
+    /**
+     * Checkbox 모드: IN 절 생성
+     */
+    private SqlDTO buildCheckboxClause(JsonNode node, String field, String type,
+                                       Map<String, String> rawTemporalKindMap) {
+        ArrayNode values = (ArrayNode) node.get("values");
+        if (values == null || values.size() == 0) {
+            return SqlDTO.empty();
+        }
+
+        if ("date".equalsIgnoreCase(type)) {
+            String rawKind = Optional.ofNullable(rawTemporalKindMap)
+                    .map(m -> m.get(field))
+                    .orElse("timestamp");
+            return inBuilder.dateIn("t", field, values, rawKind);
+        } else {
+            return inBuilder.inWithType("t", field, values, type);
+        }
+    }
+
+    /**
+     * Condition 모드: 복수 조건 + 논리 연산자 조합
+     */
+    private SqlDTO buildConditionClause(JsonNode node, String field, String type,
+                                        Map<String, String> rawTemporalKindMap) {
+        ArrayNode conditions = (ArrayNode) node.get("conditions");
+        ArrayNode logicOps = (ArrayNode) node.get("logicOps");
+
+        if (conditions == null || conditions.size() == 0) {
+            return SqlDTO.empty();
+        }
+
+        String rawTemporalKind = Optional.ofNullable(rawTemporalKindMap)
+                .map(m -> m.getOrDefault(field, "timestamp"))
+                .orElse("timestamp");
+
+        List<SqlDTO> exprs = new ArrayList<>();
+        for (int i = 0; i < conditions.size(); i++) {
+            JsonNode cond = conditions.get(i);
+            SqlDTO expr = buildSingleCondition(cond, field, type, rawTemporalKind);
+            if (!expr.isBlank()) {
+                exprs.add(expr);
+            }
+        }
+
+        if (exprs.isEmpty()) {
+            return SqlDTO.empty();
+        }
+
+        // 논리 연산자로 조건들 결합
+        return combineWithLogicOps(exprs, logicOps);
+    }
+
+    /**
+     * 단일 조건 생성 (between 또는 일반 연산자)
+     */
+    private SqlDTO buildSingleCondition(JsonNode cond, String field, String type, String rawTemporalKind) {
+        String op = cond.path("op").asText("");
+
+        if ("between".equalsIgnoreCase(op)) {
+            return buildBetweenCondition(cond, field, type, rawTemporalKind);
+        } else {
+            String val = cond.path("val").asText(null);
+            if (val == null || val.isBlank()) {
+                return SqlDTO.empty();
+            }
+            return registry.build("t", type, field, op, val, rawTemporalKind);
+        }
+    }
+
+    /**
+     * BETWEEN 조건 생성
+     */
+    private SqlDTO buildBetweenCondition(JsonNode cond, String field, String type, String rawTemporalKind) {
+        if ("date".equalsIgnoreCase(type)) {
+            String v1 = textOrNull(cond, "val1", "from");
+            String v2 = textOrNull(cond, "val2", "to");
+            if (v1 == null || v2 == null) return SqlDTO.empty();
+
+            String kstDate = temporal.toDateExpr("t", field, rawTemporalKind);
+            String condition = String.format("%s BETWEEN ?::date AND ?::date", kstDate);
+            return SqlDTO.of(condition, List.of(v1, v2));
+
+        } else if ("number".equalsIgnoreCase(type)) {
+            String a = textOrNull(cond, "min", "val1");
+            String b = textOrNull(cond, "max", "val2");
+            if (a == null || b == null) return SqlDTO.empty();
+
+            String quotedField = SqlIdentifier.quoteWithAlias("t", field);
+            String condition = String.format("%s BETWEEN ? AND ?", quotedField);
+            return SqlDTO.of(condition, List.of(parseNum(a), parseNum(b)));
+
+        } else {
+            String a = cond.path("val1").asText(null);
+            String b = cond.path("val2").asText(null);
+            if (a == null || b == null) return SqlDTO.empty();
+
+            String quotedField = SqlIdentifier.quoteWithAlias("t", field);
+            String condition = String.format("%s::text BETWEEN ? AND ?", quotedField);
+            return SqlDTO.of(condition, List.of(a, b));
+        }
+    }
+
+    /**
+     * 조건들을 논리 연산자로 결합
+     */
+    private SqlDTO combineWithLogicOps(List<SqlDTO> exprs, ArrayNode logicOps) {
+        if (exprs.size() == 1) {
+            return SqlDTO.wrap(exprs.get(0));
+        }
+
+        List<String> sqlParts = new ArrayList<>();
+        List<Object> allArgs = new ArrayList<>();
+
+        for (int i = 0; i < exprs.size(); i++) {
+            if (i > 0) {
+                String logic = (logicOps != null && logicOps.size() > i - 1)
+                        ? logicOps.get(i - 1).asText("AND")
+                        : "AND";
+                sqlParts.add(logic);
+            }
+            sqlParts.add(exprs.get(i).getSql());
+            allArgs.addAll(exprs.get(i).getArgs());
+        }
+
+        String combined = "(" + String.join(" ", sqlParts) + ")";
+        return new SqlDTO(combined, allArgs);
+    }
+
     public SqlDTO fromBaseSpec(String baseSpecJson,
                                Map<String, String> typeMap,
                                Map<String, String> rawTemporalKindMap) {
         if (baseSpecJson == null || baseSpecJson.isBlank()) return SqlDTO.empty();
+
         try {
             String norm = json.normalize(baseSpecJson);
             JsonNode root = json.parse(norm);
             List<SqlDTO> parts = new ArrayList<>();
 
-            // 1) time
-            JsonNode time = root.path("time");
-            if (time.isObject()) {
-                String field = textOrNull(time, "field");
-                Long from = time.hasNonNull("fromEpoch") ? time.get("fromEpoch").asLong() : null;
-                Long to = time.hasNonNull("toEpoch") ? time.get("toEpoch").asLong() : null;
-                boolean inclusive = time.path("inclusive").asBoolean(true);
-                if (field != null && from != null && to != null) {
-                    String fType = typeMap != null ? typeMap.getOrDefault(field, "") : "";
-                    String raw = rawTemporalKindMap != null ? rawTemporalKindMap.getOrDefault(field, "") : "";
-                    parts.add(temporal.timeRangeClause("t", field, from, to, inclusive, fType, raw));
-                }
+            // 1) time 범위
+            SqlDTO timePart = buildTimeClause(root.path("time"), typeMap, rawTemporalKindMap);
+            if (!timePart.isBlank()) {
+                parts.add(timePart);
             }
 
             // 2) conditions
-            JsonNode conds = root.path("conditions");
-            if (conds.isArray() && conds.size() > 0) {
-                List<SqlDTO> cParts = new ArrayList<>();
-                for (int i = 0; i < conds.size(); i++) {
-                    JsonNode c = conds.get(i);
-                    String field = textOrNull(c, "field");
-                    String op = textOrNull(c, "op");
-                    if (field == null || op == null) continue;
-
-                    String dt = optUpper(c, "dataType");
-                    String dataType = (dt == null || dt.isBlank())
-                            ? (typeMap != null && typeMap.get(field) != null ? typeMap.get(field).toUpperCase() : "TEXT")
-                            : dt;
-
-                    java.util.List<String> vals = readStringValues(c.path("values"));
-                    SqlDTO expr = searchMapper.map("t", field, op.toUpperCase(), dataType, vals);
-                    if (expr.isBlank()) continue;
-
-                    if (i > 0) {
-                        String join = c.path("join").asText("AND").toUpperCase();
-                        cParts.add(SqlDTO.raw(join));
-                    }
-                    cParts.add(SqlDTO.wrap(expr));
-                }
-                if (!cParts.isEmpty()) {
-                    SqlDTO merged = SqlDTO.sequence(cParts);
-                    boolean not = root.path("not").asBoolean(false);
-                    parts.add(not ? SqlDTO.of("NOT (" + merged.sql + ")", merged.args) : SqlDTO.of("(" + merged.sql + ")", merged.args));
-                }
+            SqlDTO condPart = buildConditionsClause(root.path("conditions"),
+                    root.path("not").asBoolean(false), typeMap);
+            if (!condPart.isBlank()) {
+                parts.add(condPart);
             }
+
             return SqlDTO.join(" AND ", parts);
         } catch (Exception e) {
             return SqlDTO.empty();
         }
+    }
+
+    /**
+     * BaseSpec의 time 절 생성
+     */
+    private SqlDTO buildTimeClause(JsonNode time, Map<String, String> typeMap,
+                                   Map<String, String> rawTemporalKindMap) {
+        if (!time.isObject()) return SqlDTO.empty();
+
+        String field = textOrNull(time, "field");
+        Long from = time.hasNonNull("fromEpoch") ? time.get("fromEpoch").asLong() : null;
+        Long to = time.hasNonNull("toEpoch") ? time.get("toEpoch").asLong() : null;
+
+        if (field == null || from == null || to == null) {
+            return SqlDTO.empty();
+        }
+
+        boolean inclusive = time.path("inclusive").asBoolean(true);
+        String fType = typeMap != null ? typeMap.getOrDefault(field, "") : "";
+        String raw = rawTemporalKindMap != null ? rawTemporalKindMap.getOrDefault(field, "") : "";
+
+        return temporal.timeRangeClause("t", field, from, to, inclusive, fType, raw);
+    }
+
+    /**
+     * BaseSpec의 conditions 절 생성
+     */
+    private SqlDTO buildConditionsClause(JsonNode conds, boolean not, Map<String, String> typeMap) {
+        if (!conds.isArray() || conds.size() == 0) {
+            return SqlDTO.empty();
+        }
+
+        List<SqlDTO> cParts = new ArrayList<>();
+
+        for (int i = 0; i < conds.size(); i++) {
+            JsonNode c = conds.get(i);
+            String field = textOrNull(c, "field");
+            String op = textOrNull(c, "op");
+
+            if (field == null || op == null) continue;
+
+            String dataType = resolveDataType(c, field, typeMap);
+            List<String> vals = readStringValues(c.path("values"));
+
+            SqlDTO expr = searchMapper.map("t", field, op.toUpperCase(), dataType, vals);
+            if (expr.isBlank()) continue;
+
+            if (i > 0) {
+                String join = c.path("join").asText("AND").toUpperCase();
+                cParts.add(SqlDTO.raw(join));
+            }
+            cParts.add(SqlDTO.wrap(expr));
+        }
+
+        if (cParts.isEmpty()) {
+            return SqlDTO.empty();
+        }
+
+        SqlDTO merged = SqlDTO.sequence(cParts);
+
+        if (not) {
+            return SqlDTO.of("NOT (" + merged.getSql() + ")", merged.getArgs());
+        } else {
+            return SqlDTO.of("(" + merged.getSql() + ")", merged.getArgs());
+        }
+    }
+
+    private String resolveDataType(JsonNode c, String field, Map<String, String> typeMap) {
+        String dt = optUpper(c, "dataType");
+        if (dt != null && !dt.isBlank()) {
+            return dt;
+        }
+        if (typeMap != null && typeMap.get(field) != null) {
+            return typeMap.get(field).toUpperCase();
+        }
+        return "TEXT";
     }
 
     private Number parseNum(String s) {

@@ -1,7 +1,10 @@
 package com.moa.api.grid.repository;
 
+import com.moa.api.grid.config.GridProperties;
 import com.moa.api.grid.dto.*;
+import com.moa.api.grid.util.LayerTableResolver;
 import com.moa.api.grid.util.QueryBuilder;
+import com.moa.api.grid.util.SqlQueryBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.postgresql.util.PGobject;
@@ -12,8 +15,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static com.moa.api.grid.util.LayerTableResolver.resolveDataTable;
-
+/**
+ * GridRepositoryImpl
+ *
+ * 개선사항:
+ * 1. SqlQueryBuilder 패턴 적용
+ * 2. StringBuilder 제거
+ */
 @Slf4j
 @Repository
 @RequiredArgsConstructor
@@ -22,8 +30,10 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
 
     private final JdbcTemplate jdbcTemplate;
     private final QueryBuilder queryBuilder;
+    private final LayerTableResolver tableResolver;
+    private final GridProperties properties;
 
-    // 레이어별 메타 캐시
+    // 레이어별 메타 캐시 (나중에 Redis로 전환)
     private final Map<String, Map<String, String>> frontendTypeCache = new ConcurrentHashMap<>();
     private final Map<String, Map<String, String>> temporalKindCache = new ConcurrentHashMap<>();
 
@@ -40,7 +50,8 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
         SqlDTO s = queryBuilder.buildDistinctPagedSQLOrdered(
                 normLayer, column, filterModel, includeSelf, search, offset, limit + 1,
                 orderBy, order, baseSpecJson, typeMap, temporalMap);
-        log.info("[DistinctSQL] {}", s.getSql());
+
+        log.debug("[DistinctSQL] {}", s.getSql());
 
         List<String> list = jdbcTemplate.query(s.getSql(), s.getArgs().toArray(), (rs, rn) -> {
             Object v = rs.getObject(1);
@@ -51,28 +62,25 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
         if (hasMore) list.remove(list.size() - 1);
 
         Integer next = hasMore ? offset + limit : null;
-        long total = 0L;
-
-        return new DistinctPageDTO(list, total, offset, limit, next);
+        return new DistinctPageDTO(list, 0L, offset, limit, next);
     }
 
-    /**
-     * PostgreSQL 컬럼명 + 타입 조회
-     */
     @Override
     public List<SearchResponseDTO.ColumnDTO> getColumnsWithType(String layer) {
-        String fqn = resolveDataTable(layer);
-        String schema = fqn.contains(".") ? fqn.split("\\.", 2)[0] : "public";
-        String table = fqn.contains(".") ? fqn.split("\\.", 2)[1] : fqn;
+        String fqn = tableResolver.resolveDataTable(layer);
+        String[] parts = tableResolver.splitSchemaAndTable(fqn);
+        String schema = parts[0];
+        String table = parts[1];
 
-        String colSql = """
-                    SELECT column_name, data_type, udt_name
-                    FROM information_schema.columns
-                    WHERE table_schema = ? AND table_name = ?
-                    ORDER BY ordinal_position
-                """;
+        // Builder 패턴 활용!
+        SqlDTO query = SqlQueryBuilder
+                .select("column_name", "data_type", "udt_name")
+                .from("information_schema.columns")
+                .where(SqlDTO.of("table_schema = ? AND table_name = ?", List.of(schema, table)))
+                .orderBy("ordinal_position", "ASC")
+                .build();
 
-        List<Map<String, Object>> result = jdbcTemplate.queryForList(colSql, schema, table);
+        List<Map<String, Object>> result = jdbcTemplate.queryForList(query.getSql(), query.getArgs().toArray());
         Map<String, String> labelMap = loadLabelKoMap(layer);
 
         List<SearchResponseDTO.ColumnDTO> columns = new ArrayList<>(result.size());
@@ -88,81 +96,15 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
         return columns;
     }
 
-    /**
-     * PostgreSQL 타입 → 프론트용 타입 매핑
-     */
-    private String mapToFrontendType(String udtType, String dataType, String colName) {
-        String t = (udtType != null ? udtType : dataType);
-        t = t == null ? "" : t.toLowerCase();
-        String c = (colName == null) ? "" : colName.toLowerCase();
-
-        // 1) 특수 타입 우선
-        if (t.contains("inet") || c.contains("ip")) return "ip";
-        if (t.contains("mac")  || c.contains("mac")) return "mac";
-
-        // 2) port 계열은 카테고리(string)로 간주
-        if (c.contains("port")) return "string";
-
-        // 3) 나머지 일반 타입
-        if (t.contains("char") || t.contains("text") || t.contains("varchar")) return "string";
-        if (t.contains("int") || t.contains("numeric") || t.contains("decimal")
-                || t.contains("float") || t.contains("double") || t.contains("real")) return "number";
-        if (t.contains("date") || t.contains("time") || t.contains("timestamp")) return "date";
-        if (t.contains("bool")) return "boolean";
-        if (t.contains("json")) return "json";
-        return "string";
-    }
-
-
-    // === 메타 빌더 & 캐시 ===
-    private Map<String, String> buildFrontendTypeMap(String layer) {
-        List<SearchResponseDTO.ColumnDTO> cols = getColumnsWithType(layer);
-        Map<String, String> m = new HashMap<>(cols.size());
-        for (var c : cols) m.put(c.getName(), c.getType());
-        return m;
-    }
-
-    private Map<String, String> buildTemporalKindMap(String layer) {
-        String fqn = resolveDataTable(layer);
-        String schema = fqn.contains(".") ? fqn.split("\\.", 2)[0] : "public";
-        String table = fqn.contains(".") ? fqn.split("\\.", 2)[1] : fqn;
-
-        String sql = """
-                    SELECT column_name, udt_name
-                    FROM information_schema.columns
-                    WHERE table_schema = ? AND table_name = ?
-                """;
-        Map<String, String> m = new HashMap<>();
-        for (var row : jdbcTemplate.queryForList(sql, schema, table)) {
-            String col = String.valueOf(row.get("column_name"));
-            String udt = String.valueOf(row.get("udt_name")).toLowerCase();
-            if (udt.contains("timestamptz")) m.put(col, "timestamptz");
-            else if ("timestamp".equals(udt)) m.put(col, "timestamp");
-            else if (udt.contains("date")) m.put(col, "date");
-            else if (udt.contains("time")) m.put(col, "timestamp");
-        }
-        return m;
-    }
-
-    @Override
-    public Map<String, String> getFrontendTypeMap(String layer) {
-        String key = (layer == null ? "ethernet" : layer).toLowerCase();
-        return frontendTypeCache.computeIfAbsent(key, this::buildFrontendTypeMap);
-    }
-
-    @Override
-    public Map<String, String> getTemporalKindMap(String layer) {
-        String key = (layer == null ? "ethernet" : layer).toLowerCase();
-        return temporalKindCache.computeIfAbsent(key, this::buildTemporalKindMap);
-    }
-
     @Override
     public AggregateResponseDTO aggregate(AggregateRequestDTO req) {
-        String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "ethernet" : req.getLayer();
+        String layer = (req.getLayer() == null || req.getLayer().isBlank())
+                ? "ethernet" : req.getLayer();
         String table = queryBuilder.resolveTableName(layer);
 
         Map<String, String> typeMap = getFrontendTypeMap(layer);
         Map<String, String> temporalMap = getTemporalKindMap(layer);
+
         SqlDTO whereBase = queryBuilder.buildWhereFromBaseSpec(req.getBaseSpecJson(), typeMap, temporalMap);
         SqlDTO whereFilter = queryBuilder.buildWhereClause(req.getFilterModel(), typeMap, temporalMap);
         SqlDTO where = SqlDTO.and(whereBase, whereFilter);
@@ -178,7 +120,7 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
                     ? declaredType.toLowerCase()
                     : typeMap.getOrDefault(field, "string").toLowerCase();
 
-            if ("date".equals(t)) return; // date 제외
+            if ("date".equals(t)) return;
 
             String col = "\"" + field + "\"";
             List<String> ops = (spec != null && spec.getOps() != null) ? spec.getOps() : List.of();
@@ -233,96 +175,146 @@ public class GridRepositoryImpl implements GridRepositoryCustom {
         return new AggregateResponseDTO(result);
     }
 
+    /**
+     * 숫자 집계 - Builder 패턴 적용
+     */
     private Map<String, Object> numberAgg(String table, String col, SqlDTO where) {
-        StringBuilder sql = new StringBuilder()
-                .append("SELECT COUNT(").append(col).append(") AS cnt, ")
-                .append("SUM(").append(col).append(") AS s, ")
-                .append("AVG(").append(col).append(") AS a, ")
-                .append("MIN(").append(col).append(") AS mn, ")
-                .append("MAX(").append(col).append(") AS mx ")
-                .append("FROM ").append(table).append(" t");
-        if (where != null && !where.isBlank()) {
-            sql.append(" WHERE ").append(where.getSql());
-            return jdbcTemplate.queryForMap(sql.toString(), where.getArgs().toArray());
-        }
-        return jdbcTemplate.queryForMap(sql.toString());
+        SqlDTO query = SqlQueryBuilder
+                .select(
+                        "COUNT(" + col + ") AS cnt",
+                        "SUM(" + col + ") AS s",
+                        "AVG(" + col + ") AS a",
+                        "MIN(" + col + ") AS mn",
+                        "MAX(" + col + ") AS mx"
+                )
+                .from(table + " t")
+                .where(where)
+                .build();
+
+        return jdbcTemplate.queryForMap(query.getSql(), query.getArgs().toArray());
     }
 
+    /**
+     * 문자열 집계 - Builder 패턴 적용
+     */
     private Map<String, Object> stringAgg(String table, String col, SqlDTO where, boolean distinctAsText) {
         String distinctExpr = distinctAsText ? (col + "::text") : col;
-        StringBuilder sql = new StringBuilder()
-                .append("SELECT COUNT(").append(col).append(") AS cnt, ")
-                .append("COUNT(DISTINCT ").append(distinctExpr).append(") AS uniq ")
-                .append("FROM ").append(table).append(" t");
-        if (where != null && !where.isBlank()) {
-            sql.append(" WHERE ").append(where.getSql());
-            return jdbcTemplate.queryForMap(sql.toString(), where.getArgs().toArray());
-        }
-        return jdbcTemplate.queryForMap(sql.toString());
+
+        SqlDTO query = SqlQueryBuilder
+                .select(
+                        "COUNT(" + col + ") AS cnt",
+                        "COUNT(DISTINCT " + distinctExpr + ") AS uniq"
+                )
+                .from(table + " t")
+                .where(where)
+                .build();
+
+        return jdbcTemplate.queryForMap(query.getSql(), query.getArgs().toArray());
     }
 
+    /**
+     * Top-N 조회 - Builder 패턴 적용
+     */
     private List<Map<String, Object>> topNList(String table, String col, SqlDTO where, int limit, boolean distinctAsText) {
         String valExpr = col + "::text";
-        String notEmpty = "NULLIF(BTRIM(" + valExpr + "), '') IS NOT NULL";
+        SqlDTO notEmptyCondition = SqlDTO.raw("NULLIF(BTRIM(" + valExpr + "), '') IS NOT NULL");
+        SqlDTO combinedWhere = SqlDTO.and(where, notEmptyCondition);
 
-        StringBuilder sql = new StringBuilder()
-                .append("SELECT ").append(valExpr).append(" AS val, COUNT(*) AS c ")
-                .append("FROM ").append(table).append(" t ");
+        SqlDTO query = SqlQueryBuilder
+                .select(valExpr + " AS val", "COUNT(*) AS c")
+                .from(table + " t")
+                .where(combinedWhere)
+                .groupBy(valExpr)
+                .orderBy("c", "DESC")
+                .orderBy(valExpr, "ASC")
+                .limit(limit)
+                .build();
 
-        List<String> conds = new ArrayList<>();
-        List<Object> args = new ArrayList<>();
-        if (where != null && !where.isBlank()) {
-            conds.add(where.getSql());
-            args.addAll(where.getArgs());
-        }
-        conds.add(notEmpty);
-
-        sql.append("WHERE ").append(String.join(" AND ", conds)).append(" ")
-                .append("GROUP BY ").append(valExpr).append(" ")
-                .append("ORDER BY c DESC, ").append(valExpr).append(" ASC ")
-                .append("LIMIT ").append(Math.max(1, limit));
-
-        return jdbcTemplate.queryForList(sql.toString(), args.toArray());
+        return jdbcTemplate.queryForList(query.getSql(), query.getArgs().toArray());
     }
 
-    /**
-     * 레이어별 필드 메타 테이블명
-     */
-    private String resolveFieldMetaTable(String layer) {
+    @Override
+    public Map<String, String> getFrontendTypeMap(String layer) {
         String key = (layer == null ? "ethernet" : layer).toLowerCase();
-        return switch (key) {
-            case "http_page" -> "http_page_fields";
-            case "http_uri" -> "http_uri_fields";
-            case "l4_tcp" -> "l4_tcp_fields";
-            default -> "ethernet_fields";
-        };
+        return frontendTypeCache.computeIfAbsent(key, this::buildFrontendTypeMap);
     }
 
-    /**
-     * 테이블 존재 여부
-     */
+    @Override
+    public Map<String, String> getTemporalKindMap(String layer) {
+        String key = (layer == null ? "ethernet" : layer).toLowerCase();
+        return temporalKindCache.computeIfAbsent(key, this::buildTemporalKindMap);
+    }
+
+    private Map<String, String> buildFrontendTypeMap(String layer) {
+        List<SearchResponseDTO.ColumnDTO> cols = getColumnsWithType(layer);
+        Map<String, String> m = new HashMap<>(cols.size());
+        for (var c : cols) m.put(c.getName(), c.getType());
+        return m;
+    }
+
+    private Map<String, String> buildTemporalKindMap(String layer) {
+        String fqn = tableResolver.resolveDataTable(layer);
+        String[] parts = tableResolver.splitSchemaAndTable(fqn);
+        String schema = parts[0];
+        String table = parts[1];
+
+        SqlDTO query = SqlQueryBuilder
+                .select("column_name", "udt_name")
+                .from("information_schema.columns")
+                .where(SqlDTO.of("table_schema = ? AND table_name = ?", List.of(schema, table)))
+                .build();
+
+        Map<String, String> m = new HashMap<>();
+        for (var row : jdbcTemplate.queryForList(query.getSql(), query.getArgs().toArray())) {
+            String col = String.valueOf(row.get("column_name"));
+            String udt = String.valueOf(row.get("udt_name")).toLowerCase();
+            if (udt.contains("timestamptz")) m.put(col, "timestamptz");
+            else if ("timestamp".equals(udt)) m.put(col, "timestamp");
+            else if (udt.contains("date")) m.put(col, "date");
+            else if (udt.contains("time")) m.put(col, "timestamp");
+        }
+        return m;
+    }
+
+    private String mapToFrontendType(String udtType, String dataType, String colName) {
+        String t = (udtType != null ? udtType : dataType).toLowerCase();
+        String c = colName.toLowerCase();
+
+        if (t.contains("inet") || c.contains("ip")) return "ip";
+        if (t.contains("mac") || c.contains("mac")) return "mac";
+        if (c.contains("port")) return "string";
+        if (t.contains("char") || t.contains("text") || t.contains("varchar")) return "string";
+        if (t.contains("int") || t.contains("numeric") || t.contains("decimal") ||
+                t.contains("float") || t.contains("double") || t.contains("real")) return "number";
+        if (t.contains("date") || t.contains("time") || t.contains("timestamp")) return "date";
+        if (t.contains("bool")) return "boolean";
+        if (t.contains("json")) return "json";
+
+        return "string";
+    }
+
+    private Map<String, String> loadLabelKoMap(String layer) {
+        String metaTable = tableResolver.resolveFieldMetaTable(layer);
+        if (!tableExists("public", metaTable)) return Map.of();
+
+        SqlDTO query = SqlQueryBuilder
+                .select("field_key", "label_ko")
+                .from("public." + metaTable)
+                .build();
+
+        Map<String, String> m = new HashMap<>();
+        jdbcTemplate.query(query.getSql(), rs -> {
+            while (rs.next()) {
+                m.put(rs.getString("field_key"), rs.getString("label_ko"));
+            }
+            return null;
+        });
+        return m;
+    }
+
     private boolean tableExists(String schema, String table) {
         String sql = "SELECT to_regclass(?)";
         String reg = jdbcTemplate.queryForObject(sql, String.class, schema + "." + table);
         return reg != null;
-    }
-
-    /**
-     * field_key -> label_ko 매핑 로드
-     */
-    private Map<String, String> loadLabelKoMap(String layer) {
-        String metaTable = resolveFieldMetaTable(layer);
-        if (!tableExists("public", metaTable)) return Map.of();
-
-        String sql = "SELECT field_key, label_ko FROM public." + metaTable;
-        Map<String, String> m = new HashMap<>();
-
-        jdbcTemplate.query(sql, rs -> {
-            while (rs.next()) {
-                m.put(rs.getString("field_key"), rs.getString("label_ko"));
-            }
-            return null; // ResultSetExtractor<T>의 T 리턴
-        });
-        return m;
     }
 }
