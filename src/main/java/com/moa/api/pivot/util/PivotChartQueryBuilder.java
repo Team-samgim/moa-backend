@@ -60,6 +60,7 @@ public class PivotChartQueryBuilder {
 
     /**
      * 차트 데이터 조회 쿼리 생성 (X축, Y축, 메트릭값)
+     * 단일 차트 모드에서 사용
      */
     public QueryWithParams buildChartDataQuery(
             PivotQueryContext ctx,
@@ -105,6 +106,49 @@ public class PivotChartQueryBuilder {
             %s
             GROUP BY %s, %s
             """, colExpr, rowExpr, metricExpr, table, where, colExpr, rowExpr);
+
+        return new QueryWithParams(sqlText, ps);
+    }
+
+    /**
+     * 단일 Column 값에 대한 차트 데이터 조회 쿼리 생성
+     * 다중 차트 모드에서 사용
+     */
+    public QueryWithParams buildSingleColumnChartDataQuery(
+            PivotQueryContext ctx,
+            String colField,
+            String colValue,
+            String rowField,
+            PivotQueryRequestDTO.ValueDef metricDef,
+            List<String> yCategories,
+            List<PivotQueryRequestDTO.FilterDef> filters
+    ) {
+        String layerCode = ctx.getLayer().getCode();
+        String table = ctx.table();
+        String timeField = ctx.getTimeField();
+        TimeWindow tw = ctx.getTimeWindow();
+
+        String rowExpr = ctx.col(rowField);
+        String metricExpr = buildMetricExpr(metricDef, ctx.getLayer());
+
+        // Row IN (...) 필터 추가
+        List<PivotQueryRequestDTO.FilterDef> finalFilters = new ArrayList<>(filters);
+        PivotQueryRequestDTO.FilterDef yFilter = new PivotQueryRequestDTO.FilterDef();
+        yFilter.setField(rowField);
+        yFilter.setOp("IN");
+        yFilter.setValue(new ArrayList<>(yCategories));
+        finalFilters.add(yFilter);
+
+        MapSqlParameterSource ps = new MapSqlParameterSource();
+        String where = sqlSupport.where(layerCode, timeField, tw, finalFilters, ps);
+
+        String sqlText = String.format("""
+            SELECT %s AS r,
+                   %s AS m
+            FROM %s
+            %s
+            GROUP BY %s
+            """, rowExpr, metricExpr, table, where, rowExpr);
 
         return new QueryWithParams(sqlText, ps);
     }
@@ -184,15 +228,31 @@ public class PivotChartQueryBuilder {
         String where = wc.getWhere();         // " WHERE ..." 포함
         MapSqlParameterSource ps = wc.getParams();
 
-        String sqlText = """
+        // 시간 컬럼을 초 단위로 변환 (나노초 정밀도 문제 해결)
+        String timeExpr;
+        // req.getTimeField()에서 실제 필드명 가져오기
+        String actualTimeField = req.getTimeField();
+        if (actualTimeField == null || actualTimeField.isBlank()) {
+            actualTimeField = com.moa.api.pivot.model.PivotLayer.from(layerKey).getDefaultTimeField();
+        }
+
+        if ("ts_server_nsec".equalsIgnoreCase(actualTimeField) || actualTimeField.toLowerCase().contains("nsec")) {
+            // 나노초 -> 초 단위로 변환 후 소수점 제거 (초 단위로 집계)
+            timeExpr = "FLOOR(" + timeColumn + ")";
+        } else {
+            // 이미 초 단위인 경우
+            timeExpr = timeColumn;
+        }
+
+        String sqlText = String.format("""
             SELECT %s AS row_key,
                    %s AS ts,
                    %s AS m
             FROM %s
             %s
-            GROUP BY row_key, ts
+            GROUP BY %s, %s
             ORDER BY ts ASC
-            """.formatted(rowColumn, timeColumn, metricExpr, table, where);
+            """, rowColumn, timeExpr, metricExpr, table, where, rowColumn, timeExpr);
 
         return new QueryWithParams(sqlText, ps);
     }

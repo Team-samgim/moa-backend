@@ -3,6 +3,7 @@ package com.moa.api.chart.service;
 import com.moa.api.chart.dto.request.DrilldownTimeSeriesRequestDTO;
 import com.moa.api.chart.dto.request.PivotChartRequestDTO;
 import com.moa.api.chart.dto.response.DrilldownTimeSeriesResponseDTO;
+import com.moa.api.chart.dto.response.PivotChartByColumnResponseDTO;
 import com.moa.api.chart.dto.response.PivotChartResponseDTO;
 import com.moa.api.chart.dto.request.PivotHeatmapTableRequestDTO;
 import com.moa.api.chart.dto.response.PivotHeatmapTableResponseDTO;
@@ -22,7 +23,6 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class ChartService {
 
-    private final PivotService pivotService;
     private final ChartRepository chartRepository;
     private final SqlSupport sqlSupport;
 
@@ -40,6 +40,21 @@ public class ChartService {
 
         return chartRepository.getChart(ctx, req);
     }
+
+//    public PivotChartByColumnResponseDTO getChartByColumn(PivotChartRequestDTO req) {
+//        TimeWindow tw = resolveTimeWindow(req.getTime());
+//        PivotLayer layer = PivotLayer.from(req.getLayer());
+//
+//        PivotQueryContext ctx = new PivotQueryContext(
+//                layer,
+//                req.getTime() != null ? req.getTime().getField() : null,
+//                tw,
+//                req.getFilters(),
+//                sqlSupport
+//        );
+//
+//        return chartRepository.getChartByColumn(ctx, req);
+//    }
 
     public PivotHeatmapTableResponseDTO getHeatmapTable(PivotHeatmapTableRequestDTO req) {
         TimeWindow tw = resolveTimeWindow(req.getTime());
