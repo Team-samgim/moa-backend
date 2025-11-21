@@ -1,6 +1,9 @@
 package com.moa.api.dashboard.dto.response;
 
+import java.sql.Timestamp;
+
 public record DevicePerfResponseDTO(
+        Timestamp timestamp,
         String deviceType,           // "Desktop", "Mobile", "Tablet"
         Long requestCount,           // 요청 수
         Double trafficPercentage,    // 트래픽 비율 (%)

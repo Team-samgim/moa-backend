@@ -24,6 +24,12 @@ import java.util.Map;
  * ============================================
  * - ts_page: 페이지 전체 로딩 시간 (사용자 체감 시간)
  * - ts_page_res: 서버 응답 시간 (서버 처리 시간)
+ *
+ * ============================================
+ * 수정사항: 5분 단위 timestamp 추가
+ * ============================================
+ * - 기존에 timestamp가 없던 메서드들에 5분 단위 집계 추가
+ * - 슬라이딩 윈도우를 위해 프론트엔드에서 정확한 시간 기반 필터링 가능
  */
 @Repository
 public class DashboardRepository {
@@ -206,16 +212,16 @@ public class DashboardRepository {
     // ============================================
     // 위젯 3: HTTP 상태 코드 분포 (도넛 차트)
     // - 와이어프레임 위젯 3: "HTTP 상태 코드 분포"
-    // - 역할: 2xx, 3xx, 4xx, 5xx 응답 코드 비율을 합산해
-    //         상태 코드 도넛 차트의 섹터 값으로 사용
+    // - 역할: 2xx, 3xx, 4xx, 5xx 응답 코드 비율을 시간대별로 집계
+    // - ⭐ 수정: 5분 단위 timestamp 추가
     // ============================================
 
     public List<StatusCodeResponseDTO> getStatusCodeDistribution(Long startTimeUnix, Long endTimeUnix, DashboardRequestDTO.DashboardFilters filters) {
         String whereClause = buildWhereClause(filters);
 
         String sql = """
-        WITH status_counts AS (
             SELECT 
+                TO_TIMESTAMP(FLOOR(ts_server_nsec / 300) * 300) as timestamp,
                 COALESCE(SUM(res_code_2xx_cnt), 0) as success_count,
                 COALESCE(SUM(res_code_3xx_cnt), 0) as redirect_count,
                 COALESCE(SUM(res_code_4xx_cnt), 0) as client_error_count,
@@ -223,44 +229,32 @@ public class DashboardRepository {
             FROM http_page_sample
             WHERE ts_server_nsec BETWEEN ? AND ?
             """ + whereClause + """
-        ),
-        total_count AS (
-            SELECT (success_count + redirect_count + client_error_count + server_error_count) as total
-            FROM status_counts
-        )
-        SELECT 
-            '2xx' as status_group,
-            sc.success_count as count,
-            ROUND(sc.success_count * 100.0 / NULLIF(tc.total, 0), 1) as percentage
-        FROM status_counts sc, total_count tc
-        UNION ALL
-        SELECT 
-            '3xx' as status_group,
-            sc.redirect_count as count,
-            ROUND(sc.redirect_count * 100.0 / NULLIF(tc.total, 0), 1) as percentage
-        FROM status_counts sc, total_count tc
-        UNION ALL
-        SELECT 
-            '4xx' as status_group,
-            sc.client_error_count as count,
-            ROUND(sc.client_error_count * 100.0 / NULLIF(tc.total, 0), 1) as percentage
-        FROM status_counts sc, total_count tc
-        UNION ALL
-        SELECT 
-            '5xx' as status_group,
-            sc.server_error_count as count,
-            ROUND(sc.server_error_count * 100.0 / NULLIF(tc.total, 0), 1) as percentage
-        FROM status_counts sc, total_count tc
-        ORDER BY status_group
-        """;
+            GROUP BY FLOOR(ts_server_nsec / 300)
+            ORDER BY timestamp
+            """;
 
-        return jdbcTemplate.query(sql, (rs, rowNum) ->
-                        new StatusCodeResponseDTO(
-                                rs.getString("status_group"),
-                                Long.valueOf(rs.getLong("count")),
-                                Double.valueOf(rs.getDouble("percentage"))
-                        )
-                , startTimeUnix, endTimeUnix);
+        List<StatusCodeResponseDTO> result = new ArrayList<>();
+
+        jdbcTemplate.query(sql, (rs) -> {
+            java.sql.Timestamp timestamp = rs.getTimestamp("timestamp");
+            long successCount = rs.getLong("success_count");
+            long redirectCount = rs.getLong("redirect_count");
+            long clientErrorCount = rs.getLong("client_error_count");
+            long serverErrorCount = rs.getLong("server_error_count");
+            long total = successCount + redirectCount + clientErrorCount + serverErrorCount;
+
+            // 각 상태 그룹별로 4개 행 추가 (기존 DTO 구조 유지)
+            result.add(new StatusCodeResponseDTO(timestamp, "2xx", successCount,
+                    total > 0 ? Math.round(successCount * 1000.0 / total) / 10.0 : 0.0));
+            result.add(new StatusCodeResponseDTO(timestamp, "3xx", redirectCount,
+                    total > 0 ? Math.round(redirectCount * 1000.0 / total) / 10.0 : 0.0));
+            result.add(new StatusCodeResponseDTO(timestamp, "4xx", clientErrorCount,
+                    total > 0 ? Math.round(clientErrorCount * 1000.0 / total) / 10.0 : 0.0));
+            result.add(new StatusCodeResponseDTO(timestamp, "5xx", serverErrorCount,
+                    total > 0 ? Math.round(serverErrorCount * 1000.0 / total) / 10.0 : 0.0));
+        }, startTimeUnix, endTimeUnix);
+
+        return result;
     }
 
     // ============================================
@@ -268,6 +262,7 @@ public class DashboardRepository {
     // - 와이어프레임 위젯 6: "느린 페이지 Top 10"
     // - 역할: URI(http_uri) 별 평균 응답 시간(ts_page_res)을 내림차순 정렬해
     //         가장 느린 페이지 상위 10개를 표/바 차트로 보여주는 데이터 제공
+    // - ⭐ 수정: 5분 단위 timestamp 추가
     // ============================================
 
     public List<TopDomainResponseDTO> getTopDomains(Long startTimeUnix, Long endTimeUnix, DashboardRequestDTO.DashboardFilters filters) {
@@ -275,6 +270,7 @@ public class DashboardRepository {
 
         String sql = """
             SELECT 
+                TO_TIMESTAMP(FLOOR(ts_server_nsec / 300) * 300) as timestamp,
                 http_uri,
                 ROUND(AVG(ts_page_res)::numeric, 2) as avg_response_time,
                 COUNT(*) as request_count
@@ -285,13 +281,13 @@ public class DashboardRepository {
                 AND ts_page_res IS NOT NULL
                 AND ts_page_res > 0
             """ + whereClause + """
-            GROUP BY http_uri
-            ORDER BY avg_response_time DESC
-            LIMIT 10
+            GROUP BY FLOOR(ts_server_nsec / 300), http_uri
+            ORDER BY timestamp, avg_response_time DESC
             """;
 
         return jdbcTemplate.query(sql, (rs, rowNum) ->
                         new TopDomainResponseDTO(
+                                rs.getTimestamp("timestamp"),
                                 rs.getString("http_uri"),
                                 Double.valueOf(rs.getDouble("avg_response_time")),
                                 Long.valueOf(rs.getLong("request_count"))
@@ -304,6 +300,7 @@ public class DashboardRepository {
     // - 와이어프레임 위젯 8: "지역별 응답 시간 히트맵"
     // - 역할: 국가(country_name_req)별 평균 응답 시간(ts_page_res)과 요청 수를 집계해
     //         세계 지도/히트맵 위젯에 사용
+    // - ⭐ 수정: 5분 단위 timestamp 추가
     // ============================================
 
     public List<CountryTrafficResponseDTO> getTrafficByCountry(Long startTimeUnix, Long endTimeUnix, DashboardRequestDTO.DashboardFilters filters) {
@@ -311,6 +308,7 @@ public class DashboardRepository {
 
         String sql = """
             SELECT 
+                TO_TIMESTAMP(FLOOR(ts_server_nsec / 300) * 300) as timestamp,
                 COALESCE(NULLIF(TRIM(country_name_req), ''), 'Unknown') as country,
                 ROUND(AVG(ts_page_res)::numeric, 2) as avg_response_time,
                 COUNT(*) as request_count
@@ -319,13 +317,13 @@ public class DashboardRepository {
                 AND ts_page_res IS NOT NULL
                 AND ts_page_res > 0
             """ + whereClause + """
-            GROUP BY COALESCE(NULLIF(TRIM(country_name_req), ''), 'Unknown')
-            ORDER BY request_count DESC
-            LIMIT 20
+            GROUP BY FLOOR(ts_server_nsec / 300), COALESCE(NULLIF(TRIM(country_name_req), ''), 'Unknown')
+            ORDER BY timestamp, request_count DESC
             """;
 
         return jdbcTemplate.query(sql, (rs, rowNum) ->
                         new CountryTrafficResponseDTO(
+                                rs.getTimestamp("timestamp"),
                                 rs.getString("country"),
                                 Double.valueOf(rs.getDouble("avg_response_time")),
                                 Long.valueOf(rs.getLong("request_count"))
@@ -339,6 +337,7 @@ public class DashboardRepository {
     // - 역할: HTTP 응답 코드 400 이상(http_res_code >= 400)인 요청을 대상으로
     //         URI별 에러 발생 건수와 평균 응답 시간을 집계해
     //         에러가 많이 발생하는 페이지 상위 10개를 보여주는 데이터 제공
+    // - ⭐ 수정: 5분 단위 timestamp 추가
     // ============================================
 
     public List<ErrorPageResponseDTO> getErrorPages(Long startTimeUnix, Long endTimeUnix, DashboardRequestDTO.DashboardFilters filters) {
@@ -346,6 +345,7 @@ public class DashboardRepository {
 
         String sql = """
             SELECT
+                TO_TIMESTAMP(FLOOR(ts_server_nsec / 300) * 300) as timestamp,
                 http_uri,
                 http_res_code::integer as http_res_code,
                 COUNT(*) as error_count,
@@ -356,9 +356,8 @@ public class DashboardRepository {
                 AND http_uri IS NOT NULL
                 AND http_uri != ''
             """ + whereClause + """
-            GROUP BY http_uri, http_res_code
-            ORDER BY error_count DESC
-            LIMIT 10
+            GROUP BY FLOOR(ts_server_nsec / 300), http_uri, http_res_code
+            ORDER BY timestamp, error_count DESC
             """;
 
         return jdbcTemplate.query(sql, (rs, rowNum) -> {
@@ -366,6 +365,7 @@ public class DashboardRepository {
             String severity = resCode >= 500 ? "high" : "medium";
 
             return new ErrorPageResponseDTO(
+                    rs.getTimestamp("timestamp"),
                     rs.getString("http_uri"),
                     Integer.valueOf(resCode),
                     Long.valueOf(rs.getLong("error_count")),
@@ -381,6 +381,7 @@ public class DashboardRepository {
     // - 역할: 브라우저 이름(user_agent_software_name)별 페이지 로드 시간(ts_page)과
     //         응답 시간(ts_page_res), 요청 수를 집계해
     //         브라우저별 성능 비교 바 차트에 사용하는 데이터 제공
+    // - ⭐ 수정: 5분 단위 timestamp 추가
     // ============================================
 
     public List<BrowserPerfResponseDTO> getBrowserPerformance(Long startTimeUnix, Long endTimeUnix, DashboardRequestDTO.DashboardFilters filters) {
@@ -388,6 +389,7 @@ public class DashboardRepository {
 
         String sql = """
             SELECT 
+                TO_TIMESTAMP(FLOOR(ts_server_nsec / 300) * 300) as timestamp,
                 user_agent_software_name as browser,
                 ROUND(AVG(ts_page)::numeric, 2) as avg_page_load_time,
                 ROUND(AVG(ts_page_res)::numeric, 2) as avg_response_time,
@@ -399,13 +401,13 @@ public class DashboardRepository {
                 AND ts_page IS NOT NULL
                 AND ts_page > 0
             """ + whereClause + """
-            GROUP BY user_agent_software_name
-            ORDER BY request_count DESC
-            LIMIT 10
+            GROUP BY FLOOR(ts_server_nsec / 300), user_agent_software_name
+            ORDER BY timestamp, request_count DESC
             """;
 
         return jdbcTemplate.query(sql, (rs, rowNum) ->
                         new BrowserPerfResponseDTO(
+                                rs.getTimestamp("timestamp"),
                                 rs.getString("browser"),
                                 Double.valueOf(rs.getDouble("avg_page_load_time")),
                                 Double.valueOf(rs.getDouble("avg_response_time")),
@@ -420,46 +422,35 @@ public class DashboardRepository {
     // - 역할: 디바이스 타입(user_agent_hardware_type)별 요청 수, 평균 페이지 로드/응답 시간,
     //         평균 페이지 크기(page_http_len)를 계산해
     //         Desktop/Mobile/Tablet 성능 비교 차트에 사용하는 데이터 제공
+    // - ⭐ 수정: 5분 단위 timestamp 추가
     // ============================================
 
     public List<DevicePerfResponseDTO> getDevicePerformanceDistribution(Long startTimeUnix, Long endTimeUnix, DashboardRequestDTO.DashboardFilters filters) {
         String whereClause = buildWhereClause(filters);
 
         String sql = """
-            WITH device_stats AS (
-                SELECT 
-                    COALESCE(user_agent_hardware_type, 'Unknown') as device_type,
-                    COUNT(*) as request_count,
-                    ROUND(AVG(ts_page)::numeric, 2) as avg_page_load_time,
-                    ROUND(AVG(ts_page_res)::numeric, 2) as avg_response_time,
-                    ROUND(AVG(page_http_len)::numeric, 0) as avg_page_size
-                FROM http_page_sample
-                WHERE ts_server_nsec BETWEEN ? AND ?
-                    AND ts_page IS NOT NULL
-                    AND ts_page > 0
-                """ + whereClause + """
-                GROUP BY COALESCE(user_agent_hardware_type, 'Unknown')
-            ),
-            total_requests AS (
-                SELECT SUM(request_count) as total
-                FROM device_stats
-            )
             SELECT 
-                ds.device_type,
-                ds.request_count,
-                ROUND(ds.request_count * 100.0 / NULLIF(tr.total, 0), 1) as traffic_percentage,
-                ds.avg_page_load_time,
-                ds.avg_response_time,
-                ds.avg_page_size
-            FROM device_stats ds, total_requests tr
-            ORDER BY ds.request_count DESC
+                TO_TIMESTAMP(FLOOR(ts_server_nsec / 300) * 300) as timestamp,
+                COALESCE(user_agent_hardware_type, 'Unknown') as device_type,
+                COUNT(*) as request_count,
+                ROUND(AVG(ts_page)::numeric, 2) as avg_page_load_time,
+                ROUND(AVG(ts_page_res)::numeric, 2) as avg_response_time,
+                ROUND(AVG(page_http_len)::numeric, 0) as avg_page_size
+            FROM http_page_sample
+            WHERE ts_server_nsec BETWEEN ? AND ?
+                AND ts_page IS NOT NULL
+                AND ts_page > 0
+            """ + whereClause + """
+            GROUP BY FLOOR(ts_server_nsec / 300), COALESCE(user_agent_hardware_type, 'Unknown')
+            ORDER BY timestamp, request_count DESC
             """;
 
         return jdbcTemplate.query(sql, (rs, rowNum) ->
                         new DevicePerfResponseDTO(
+                                rs.getTimestamp("timestamp"),
                                 rs.getString("device_type"),
                                 Long.valueOf(rs.getLong("request_count")),
-                                Double.valueOf(rs.getDouble("traffic_percentage")),
+                                null,  // traffic_percentage는 프론트에서 계산
                                 Double.valueOf(rs.getDouble("avg_page_load_time")),
                                 Double.valueOf(rs.getDouble("avg_response_time")),
                                 Long.valueOf(rs.getLong("avg_page_size"))
