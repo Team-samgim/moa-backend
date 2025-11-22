@@ -249,6 +249,80 @@ public class NotificationService {
     }
 
     /**
+     * Grid CSV Export 완료 알림 전송
+     *
+     * @param memberId 회원 ID
+     * @param fileName 파일명
+     * @param exportId Export ID
+     */
+    @Transactional
+    public void notifyGridExportCompleted(Long memberId, String fileName, Long exportId) {
+        log.info("Sending grid export notification: memberId={}, fileName={}, exportId={}",
+                memberId, fileName, exportId);
+
+        try {
+            Map<String, Object> config = Map.of(
+                    "exportId", exportId,
+                    "fileName", fileName,
+                    "exportType", "GRID"
+            );
+
+            NotificationCreateRequestDto request = new NotificationCreateRequestDto(
+                    "INFO",
+                    "그리드 CSV 내보내기 완료",
+                    String.format("'%s' 파일이 성공적으로 생성되었습니다.", fileName),
+                    config
+            );
+
+            createNotification(memberId, request);
+
+            log.info("Grid export notification sent: memberId={}, exportId={}", memberId, exportId);
+
+        } catch (Exception e) {
+            // 알림 전송 실패는 전체 작업을 실패시키지 않음
+            log.error("Failed to send grid export notification: memberId={}, exportId={}",
+                    memberId, exportId, e);
+        }
+    }
+
+    /**
+     * Search Preset 저장 완료 알림 전송
+     *
+     * @param memberId 회원 ID
+     * @param presetName 프리셋 이름
+     * @param presetId Preset ID
+     */
+    @Transactional
+    public void notifyPresetSaved(Long memberId, String presetName, Integer presetId) {
+        log.info("Sending preset saved notification: memberId={}, presetName={}, presetId={}",
+                memberId, presetName, presetId);
+
+        try {
+            Map<String, Object> config = Map.of(
+                    "presetId", presetId,
+                    "presetName", presetName,
+                    "presetType", "SEARCH"
+            );
+
+            NotificationCreateRequestDto request = new NotificationCreateRequestDto(
+                    "INFO",
+                    "검색 프리셋 저장 완료",
+                    String.format("'%s' 프리셋이 성공적으로 저장되었습니다.", presetName),
+                    config
+            );
+
+            createNotification(memberId, request);
+
+            log.info("Preset saved notification sent: memberId={}, presetId={}", memberId, presetId);
+
+        } catch (Exception e) {
+            // 알림 전송 실패는 전체 작업을 실패시키지 않음
+            log.error("Failed to send preset saved notification: memberId={}, presetId={}",
+                    memberId, presetId, e);
+        }
+    }
+
+    /**
      * Notification -> DTO 변환
      */
     private NotificationResponseDto toDto(Notification notification) {

@@ -14,7 +14,12 @@ import java.util.List;
 @Component
 public class ExportValidator {
 
-    private static final List<String> VALID_LAYERS = List.of("ethernet", "tcp", "http");
+    private static final List<String> VALID_LAYERS = List.of(
+            "ethernet",
+            "tcp",
+            "http_page",
+            "http_uri"
+    );
     private static final int MAX_FILE_NAME_LENGTH = 120;
 
     /**

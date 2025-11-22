@@ -152,7 +152,7 @@ public class GridValidator {
     private boolean isValidLayer(String layer) {
         return "HTTP_PAGE".equals(layer) ||
                 "HTTP_URI".equals(layer) ||
-                "L4_TCP".equals(layer) ||
+                "TCP".equals(layer) ||
                 "ETHERNET".equals(layer);
     }
 }

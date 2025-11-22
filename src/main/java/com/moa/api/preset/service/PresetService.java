@@ -1,5 +1,6 @@
 package com.moa.api.preset.service;
 
+import com.moa.api.notification.service.NotificationService;
 import com.moa.api.preset.dto.SaveSearchPresetRequestDTO;
 import com.moa.api.preset.dto.SaveSearchPresetResponseDTO;
 import com.moa.api.preset.entity.PresetOrigin;
@@ -24,6 +25,7 @@ public class PresetService {
 
     private final PresetRepository presetRepository;
     private final PresetValidator validator;
+    private final NotificationService notificationService;
 
     /**
      * Grid Preset 저장
@@ -51,6 +53,9 @@ public class PresetService {
                     Boolean.TRUE.equals(req.getFavorite()),
                     PresetOrigin.USER  // Grid Preset은 항상 USER
             );
+
+            // 4) 알림 전송
+            sendPresetSavedNotification(memberId, req.getPresetName().trim(), presetId);
 
             log.info("Grid preset saved successfully: presetId={}, memberId={}",
                     presetId, memberId);
@@ -183,5 +188,17 @@ public class PresetService {
                 PresetException.ErrorCode.UNAUTHORIZED,
                 "지원하지 않는 principal 타입: " + principal.getClass().getName()
         );
+    }
+
+    /**
+     * Preset 저장 완료 알림 전송
+     */
+    private void sendPresetSavedNotification(Long memberId, String presetName, Integer presetId) {
+        try {
+            notificationService.notifyPresetSaved(memberId, presetName, presetId);
+        } catch (Exception e) {
+            // 알림 실패는 전체 작업을 실패시키지 않음
+            log.warn("Failed to send preset saved notification: presetId={}", presetId, e);
+        }
     }
 }
