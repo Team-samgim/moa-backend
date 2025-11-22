@@ -1,36 +1,57 @@
 package com.moa.api.detail.page.service;
 
 import com.moa.api.detail.page.dto.HttpPageMetricsDTO;
+import com.moa.api.detail.page.exception.HttpPageException;
 import com.moa.api.detail.page.repository.HttpPageRowSlice;
 import com.moa.api.detail.page.repository.HttpPageSampleRepository;
+import com.moa.api.detail.page.validation.HttpPageValidator;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * HTTP Page Metrics Service
  * 235개 컬럼을 계층적 DTO로 변환
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class HttpPageMetricsService {
 
     private final HttpPageSampleRepository repository;
-
-    private static boolean toBoolean(Integer v) {
-        return v != null && v > 0;
-    }
+    private final HttpPageValidator validator;
 
     /**
      * rowKey로 HTTP Page 메트릭 조회
      */
     public HttpPageMetricsDTO getByRowKey(String rowKey) {
-        HttpPageRowSlice r = repository.findSlice(rowKey)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "HTTP Page not found: " + rowKey));
+        // Validation
+        validator.validateRowKey(rowKey);
 
-        return buildDTO(r);
+        log.debug("Fetching HTTP Page metrics for rowKey: {}", rowKey);
+
+        try {
+            HttpPageRowSlice r = repository.findSlice(rowKey)
+                    .orElseThrow(() -> new HttpPageException(
+                            HttpPageException.ErrorCode.ROW_KEY_NOT_FOUND,
+                            "rowKey: " + rowKey));
+
+            HttpPageMetricsDTO dto = buildDTO(r);
+
+            log.debug("Successfully fetched HTTP Page metrics for rowKey: {}", rowKey);
+            return dto;
+
+        } catch (HttpPageException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Database error while fetching HTTP Page metrics for rowKey: {}", rowKey, e);
+            throw new HttpPageException(
+                    HttpPageException.ErrorCode.DATABASE_ERROR,
+                    e
+            );
+        }
     }
 
     /**
@@ -70,7 +91,7 @@ public class HttpPageMetricsService {
                 nzl(r.getHttpsUriCnt()),
                 nzl(r.getPageErrorCnt()),
 
-                // 프로토콜/센서 정보 (최상위로 이동) ⭐
+                // 프로토콜/센서 정보
                 r.getNdpiProtocolApp(),
                 r.getNdpiProtocolMaster(),
                 r.getSensorDeviceName(),
@@ -177,21 +198,6 @@ public class HttpPageMetricsService {
     /**
      * TcpQuality 빌드
      */
-    private Double safeRatio(long num, long den) {
-        if (den <= 0) return null;
-        return (double) num / den;   // 0~1
-    }
-
-    private Double normalizePct(Double raw) {
-        if (raw == null) return null;
-        double v = raw;
-        // DB에서 0~100으로 올 수도 있고, 0~1로 올 수도 있다고 가정하면
-        if (v > 1.0) v = v / 100.0;
-        if (v < 0.0) v = 0.0;
-        if (v > 1.0) v = 1.0;
-        return v;
-    }
-
     private HttpPageMetricsDTO.TcpQuality buildTcpQuality(HttpPageRowSlice r) {
         long tcpSessionCnt = nzl(r.getPageTcpConnectCnt());
         long tcpErrorSessionCnt = nzl(r.getConnErrSessionCnt());
@@ -206,7 +212,6 @@ public class HttpPageMetricsService {
         Double tcpErrorCntRatio = safeRatio(tcpErrorCnt, totalTcpCnt);
         Double tcpErrorLenRatio = safeRatio(tcpErrorLen, totalTcpLen);
 
-        // 0~1 범위로 normalization
         Double tcpErrorPercentage = normalizePct(r.getTcpErrorPercentage());
         Double tcpErrorPercentageReq = normalizePct(r.getTcpErrorPercentageReq());
         Double tcpErrorPercentageRes = normalizePct(r.getTcpErrorPercentageRes());
@@ -219,7 +224,6 @@ public class HttpPageMetricsService {
                 tcpErrorCntRatio,
                 tcpErrorLenRatio,
 
-                // --- 기존 필드들 ---
                 tcpErrorCnt,
                 nzl(r.getTcpErrorCntReq()),
                 nzl(r.getTcpErrorCntRes()),
@@ -407,7 +411,7 @@ public class HttpPageMetricsService {
     }
 
     /**
-     * Environment 빌드 (지리 정보만)
+     * Environment 빌드
      */
     private HttpPageMetricsDTO.Environment buildEnvironment(HttpPageRowSlice r) {
         return new HttpPageMetricsDTO.Environment(
@@ -438,10 +442,27 @@ public class HttpPageMetricsService {
         );
     }
 
-    /**
-     * null-safe Long → long 변환
-     */
+    /* ========== Helper Methods ========== */
+
+    private static boolean toBoolean(Integer v) {
+        return v != null && v > 0;
+    }
+
     private long nzl(Long val) {
         return val != null ? val : 0L;
+    }
+
+    private Double safeRatio(long num, long den) {
+        if (den <= 0) return null;
+        return (double) num / den;
+    }
+
+    private Double normalizePct(Double raw) {
+        if (raw == null) return null;
+        double v = raw;
+        if (v > 1.0) v = v / 100.0;
+        if (v < 0.0) v = 0.0;
+        if (v > 1.0) v = 1.0;
+        return v;
     }
 }

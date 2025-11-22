@@ -1,45 +1,76 @@
 package com.moa.api.grid.dto;
 
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.*;
 import lombok.Data;
 
 @Data
 public class DistinctValuesRequestDTO {
 
-    /** 레이어 (기본 ethernet) */
-    @NotBlank
+    /**
+     * 레이어 (기본 ethernet)
+     */
+    @NotBlank(message = "레이어는 필수입니다")
+    @Pattern(
+            regexp = "^(http_page|http_uri|l4_tcp|ethernet|HTTP_PAGE|HTTP_URI|L4_TCP|ETHERNET)$",
+            message = "지원하지 않는 레이어입니다"
+    )
     private String layer = "ethernet";
 
-    /** 필수: DISTINCT 대상 필드 */
-    @NotBlank
+    /**
+     * DISTINCT 대상 필드
+     */
+    @NotBlank(message = "필드명은 필수입니다")
+    @Size(max = 100, message = "필드명은 100자를 초과할 수 없습니다")
     private String field;
 
-    /** 활성 필터(JSON 문자열) */
+    /**
+     * 활성 필터(JSON 문자열)
+     */
+    @Size(max = 10000, message = "필터 모델은 10000자를 초과할 수 없습니다")
     private String filterModel;
 
-    /** prefix 검색 */
+    /**
+     * Prefix 검색
+     */
+    @Size(max = 200, message = "검색어는 200자를 초과할 수 없습니다")
     private String search = "";
 
-    /** 페이징 */
-    @Min(0)
+    /**
+     * 페이징 offset
+     */
+    @Min(value = 0, message = "offset은 0 이상이어야 합니다")
     private int offset = 0;
 
-    @Min(1)
-    @Max(500)
+    /**
+     * 페이징 limit
+     */
+    @Min(value = 1, message = "limit은 1 이상이어야 합니다")
+    @Max(value = 1000, message = "limit은 1000 이하여야 합니다")
     private int limit = 100;
 
-    /** 정렬 */
-    private String orderBy; // null 허용: 서버에서 보정
+    /**
+     * 정렬 컬럼
+     */
+    @Size(max = 100, message = "정렬 컬럼명은 100자를 초과할 수 없습니다")
+    private String orderBy;
 
-    @Pattern(regexp = "(?i)ASC|DESC")
+    /**
+     * 정렬 방향
+     */
+    @Pattern(
+            regexp = "^(ASC|DESC|asc|desc)$",
+            message = "정렬 방향은 ASC 또는 DESC여야 합니다"
+    )
     private String order = "DESC";
 
-    /** SearchDTO 형태의 baseSpec JSON */
+    /**
+     * SearchDTO 형태의 baseSpec JSON
+     */
+    @Size(max = 10000, message = "baseSpec은 10000자를 초과할 수 없습니다")
     private String baseSpec;
 
-    /** 하위호환(무시됨): includeSelf - 서비스에서 자동 판정 */
+    /**
+     * 하위호환(무시됨): includeSelf
+     */
     private Boolean includeSelf;
 }
