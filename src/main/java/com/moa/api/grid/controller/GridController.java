@@ -1,8 +1,10 @@
 package com.moa.api.grid.controller;
 
+import com.moa.api.export.dto.ExportGridRequestDTO;
 import com.moa.api.grid.dto.*;
 import com.moa.api.grid.service.GridAsyncService;
 import com.moa.api.grid.service.GridService;
+import com.moa.api.search.dto.SearchDTO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +14,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.async.DeferredResult;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -94,7 +97,7 @@ public class GridController {
     }
 
     /**
-     * DISTINCT 필터링
+     * DISTINCT 필터링 (POST)
      */
     @PostMapping("/grid/filtering")
     public FilterResponseDTO getDistinctValuesPost(
@@ -118,6 +121,9 @@ public class GridController {
         );
     }
 
+    /**
+     * DISTINCT 필터링 (GET)
+     */
     @GetMapping({"/filtering", "/grid/filtering"})
     public FilterResponseDTO getDistinctValuesGet(
             @RequestParam(defaultValue = "ethernet") String layer,
@@ -140,6 +146,36 @@ public class GridController {
                 layer, field, filterModel, search, offset, limit,
                 false, orderBy, order, baseSpec
         );
+    }
+
+    /**
+     * 그리드 데이터 조회 (SearchSpec 기반)
+     */
+    @PostMapping("/grid/search")
+    public SearchResponseDTO getGridData(@RequestBody SearchDTO req) {
+        log.info("[POST /grid/search] Received request: layer={}, columns={}, conditions={}",
+                req.getLayer(), req.getColumns(), req.getConditions());
+        return gridService.getGridDataBySearchSpec(req);
+    }
+
+    /**
+     * 컬럼 메타데이터 조회
+     */
+    @GetMapping("/grid/columns")
+    public List<SearchResponseDTO.ColumnDTO> getColumns(
+            @RequestParam(defaultValue = "ethernet") String layer) {
+        log.info("[GET /grid/columns] layer={}", layer);
+        return gridService.getColumnsWithType(layer);
+    }
+
+    /**
+     * Export (CSV/Excel)
+     */
+    @PostMapping("/grid/export")
+    public ResponseEntity<byte[]> export(@RequestBody ExportGridRequestDTO req) {
+        log.info("[POST /grid/export] layer={}", req.getLayer());
+        // TODO: Export 구현
+        return ResponseEntity.ok().body(new byte[0]);
     }
 
     /* ---------- Helper Methods ---------- */

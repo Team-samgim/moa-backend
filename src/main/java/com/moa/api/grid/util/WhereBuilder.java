@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.moa.api.grid.dto.SqlDTO;
+import com.moa.api.grid.exception.GridException;
 import com.moa.api.grid.util.condition.*;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.*;
 
@@ -14,9 +16,9 @@ import static com.moa.api.grid.util.JsonSupport.*;
  * WHERE 절 빌더
  *
  * 개선사항:
- * 1. TemporalExprFactory 생성자 주입
- * 2. StringBuilder → SqlDTO.join() 활용
+ * 1. Exception 처리 강화 (empty 리턴 대신 명확한 에러)
  */
+@Slf4j
 public class WhereBuilder {
     private final JsonSupport json;
     private final TypeResolver typeResolver;
@@ -57,8 +59,13 @@ public class WhereBuilder {
             }
 
             return SqlDTO.join(" AND ", clauses);
+
         } catch (Exception e) {
-            return SqlDTO.empty();
+            log.error("Failed to parse filterModel: {}", filterModel, e);
+            throw new GridException(
+                    GridException.ErrorCode.INVALID_FILTER_MODEL,
+                    "FilterModel 파싱 실패: " + e.getMessage()
+            );
         }
     }
 
@@ -85,8 +92,13 @@ public class WhereBuilder {
             }
 
             return SqlDTO.join(" AND ", clauses);
+
         } catch (Exception e) {
-            return SqlDTO.empty();
+            log.error("Failed to parse filterModel (excluding {}): {}", excludeField, filterModel, e);
+            throw new GridException(
+                    GridException.ErrorCode.INVALID_FILTER_MODEL,
+                    "FilterModel 파싱 실패: " + e.getMessage()
+            );
         }
     }
 
@@ -103,7 +115,10 @@ public class WhereBuilder {
         return switch (mode) {
             case "checkbox" -> buildCheckboxClause(node, safeField, type, rawTemporalKindMap);
             case "condition" -> buildConditionClause(node, safeField, type, rawTemporalKindMap);
-            default -> SqlDTO.empty();
+            default -> {
+                log.warn("Unknown filter mode '{}' for field '{}'", mode, field);
+                yield SqlDTO.empty();
+            }
         };
     }
 
@@ -156,7 +171,6 @@ public class WhereBuilder {
             return SqlDTO.empty();
         }
 
-        // 논리 연산자로 조건들 결합
         return combineWithLogicOps(exprs, logicOps);
     }
 
@@ -260,8 +274,13 @@ public class WhereBuilder {
             }
 
             return SqlDTO.join(" AND ", parts);
+
         } catch (Exception e) {
-            return SqlDTO.empty();
+            log.error("Failed to parse baseSpec: {}", baseSpecJson, e);
+            throw new GridException(
+                    GridException.ErrorCode.INVALID_BASE_SPEC,
+                    "BaseSpec 파싱 실패: " + e.getMessage()
+            );
         }
     }
 
