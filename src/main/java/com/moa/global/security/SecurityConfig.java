@@ -64,6 +64,7 @@ public class SecurityConfig {
         c.setAllowedOrigins(List.of(
                 "http://localhost:5173", // Vite
                 "http://localhost:3000",  // CRA
+                "https://www.mo-a.site", // 서버
                 "https://mo-a.site" // 서버
         ));
         c.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
