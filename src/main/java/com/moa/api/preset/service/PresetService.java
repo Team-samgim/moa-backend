@@ -46,7 +46,7 @@ public class PresetService {
                 PresetType.PIVOT.name(),              // PIVOT 타입
                 req.getConfig(),
                 Boolean.TRUE.equals(req.getFavorite()),
-                PresetOrigin.USER                     // USER 직접 저장
+                req.getOrigin()                       // USER 직접 저장
         );
         return new SaveSearchPresetResponseDTO(id);
     }

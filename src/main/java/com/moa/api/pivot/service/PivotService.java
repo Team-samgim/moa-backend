@@ -42,7 +42,7 @@ public class PivotService {
     }
 
     /* 시간 범위 → TimeWindow */
-    private TimeWindow resolveTimeWindow(PivotQueryRequestDTO.TimeDef time) {
+    public TimeWindow resolveTimeWindow(PivotQueryRequestDTO.TimeDef time) {
         if (time == null || time.getFromEpoch() == null || time.getToEpoch() == null) {
             long nowSec = Instant.now().getEpochSecond();
             return new TimeWindow(nowSec - 3600, nowSec);
@@ -177,37 +177,5 @@ public class PivotService {
                 .nextCursor(nextCursor)
                 .hasMore(hasMore)
                 .build();
-    }
-
-    /* ===== 4) 차트 ===== */
-    public PivotChartResponseDTO getChart(PivotChartRequestDTO req) {
-        TimeWindow tw = resolveTimeWindow(req.getTime());
-        PivotLayer layer = PivotLayer.from(req.getLayer());
-
-        PivotQueryContext ctx = new PivotQueryContext(
-                layer,
-                req.getTime() != null ? req.getTime().getField() : null,
-                tw,
-                req.getFilters(),
-                sqlSupport
-        );
-
-        return pivotRepository.getChart(ctx, req);
-    }
-
-    /* ===== 5) Heatmap Table ===== */
-    public PivotHeatmapTableResponseDTO getHeatmapTable(PivotHeatmapTableRequestDTO req) {
-        TimeWindow tw = resolveTimeWindow(req.getTime());
-        PivotLayer layer = PivotLayer.from(req.getLayer());
-
-        PivotQueryContext ctx = new PivotQueryContext(
-                layer,
-                req.getTime() != null ? req.getTime().getField() : null,
-                tw,
-                req.getFilters(),
-                sqlSupport
-        );
-
-        return pivotRepository.getHeatmapTable(ctx, req);
     }
 }

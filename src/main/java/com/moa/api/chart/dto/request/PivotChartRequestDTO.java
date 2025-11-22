@@ -1,5 +1,6 @@
-package com.moa.api.pivot.dto.request;
+package com.moa.api.chart.dto.request;
 
+import com.moa.api.pivot.dto.request.PivotQueryRequestDTO;
 import lombok.Data;
 
 import java.util.List;
@@ -15,7 +16,9 @@ public class PivotChartRequestDTO {
     private AxisDef row;                          // Row 축 정의
 
     private PivotQueryRequestDTO.ValueDef metric;
-    private String chartType; // "bar" | "line" | "area" | "pie"
+    private String chartType; // "bar" | "line" | "area" | "pie" | "multiplePie"
+
+    private LayoutConfig layout; // 다중 차트 레이아웃 설정
 
     @Data
     public static class AxisDef {
@@ -28,5 +31,13 @@ public class PivotChartRequestDTO {
     @Data
     public static class TopNDef {
         private Integer n;
+    }
+
+    @Data
+    public static class LayoutConfig {
+        private Integer chartsPerRow;  // 한 줄에 표시할 차트 개수 (2 or 3)
+        // null이면 기존 방식(단일 차트)
+        // 2이면 최대 4개 차트 (2x2)
+        // 3이면 최대 6개 차트 (3x2)
     }
 }

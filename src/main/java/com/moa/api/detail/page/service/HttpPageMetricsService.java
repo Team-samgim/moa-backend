@@ -177,12 +177,53 @@ public class HttpPageMetricsService {
     /**
      * TcpQuality 빌드
      */
+    private Double safeRatio(long num, long den) {
+        if (den <= 0) return null;
+        return (double) num / den;   // 0~1
+    }
+
+    private Double normalizePct(Double raw) {
+        if (raw == null) return null;
+        double v = raw;
+        // DB에서 0~100으로 올 수도 있고, 0~1로 올 수도 있다고 가정하면
+        if (v > 1.0) v = v / 100.0;
+        if (v < 0.0) v = 0.0;
+        if (v > 1.0) v = 1.0;
+        return v;
+    }
+
     private HttpPageMetricsDTO.TcpQuality buildTcpQuality(HttpPageRowSlice r) {
+        long tcpSessionCnt = nzl(r.getPageTcpConnectCnt());
+        long tcpErrorSessionCnt = nzl(r.getConnErrSessionCnt());
+
+        long totalTcpCnt = nzl(r.getPageTcpCnt());
+        long totalTcpLen = nzl(r.getPageTcpLen());
+
+        long tcpErrorCnt = nzl(r.getTcpErrorCnt());
+        long tcpErrorLen = nzl(r.getTcpErrorLen());
+
+        Double tcpErrorSessionRatio = safeRatio(tcpErrorSessionCnt, tcpSessionCnt);
+        Double tcpErrorCntRatio = safeRatio(tcpErrorCnt, totalTcpCnt);
+        Double tcpErrorLenRatio = safeRatio(tcpErrorLen, totalTcpLen);
+
+        // 0~1 범위로 normalization
+        Double tcpErrorPercentage = normalizePct(r.getTcpErrorPercentage());
+        Double tcpErrorPercentageReq = normalizePct(r.getTcpErrorPercentageReq());
+        Double tcpErrorPercentageRes = normalizePct(r.getTcpErrorPercentageRes());
+        Double pageErrorPercentage = normalizePct(r.getPageErrorPercentage());
+
         return new HttpPageMetricsDTO.TcpQuality(
-                nzl(r.getTcpErrorCnt()),
+                tcpSessionCnt,
+                tcpErrorSessionCnt,
+                tcpErrorSessionRatio,
+                tcpErrorCntRatio,
+                tcpErrorLenRatio,
+
+                // --- 기존 필드들 ---
+                tcpErrorCnt,
                 nzl(r.getTcpErrorCntReq()),
                 nzl(r.getTcpErrorCntRes()),
-                nzl(r.getTcpErrorLen()),
+                tcpErrorLen,
                 nzl(r.getTcpErrorLenReq()),
                 nzl(r.getTcpErrorLenRes()),
 
@@ -280,11 +321,10 @@ public class HttpPageMetricsService {
                 nzl(r.getPageRttAckCntReq()),
                 nzl(r.getPageRttAckCntRes()),
 
-                // 에러 비율
-                r.getTcpErrorPercentage(),
-                r.getTcpErrorPercentageReq(),
-                r.getTcpErrorPercentageRes(),
-                r.getPageErrorPercentage()
+                tcpErrorPercentage,
+                tcpErrorPercentageReq,
+                tcpErrorPercentageRes,
+                pageErrorPercentage
         );
     }
 

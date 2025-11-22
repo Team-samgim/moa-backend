@@ -8,6 +8,8 @@ import java.sql.Timestamp;
 
 public record TrafficTrendResponseDTO(
         Timestamp timestamp,
+        Double mbpsReq,
+        Double mbpsRes,
         Long requestCount,
         Long responseCount
 ) {}

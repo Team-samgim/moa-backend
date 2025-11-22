@@ -1,4 +1,4 @@
-package com.moa.api.pivot.dto.response;
+package com.moa.api.chart.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -14,19 +14,29 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class PivotChartResponseDTO {
-    @JsonProperty("xField")
+    // ===== 단일 차트 모드 필드 =====
     private String xField;
-
-    @JsonProperty("yField")
     private String yField;
-
-    @JsonProperty("xCategories")
     private List<String> xCategories;
-
-    @JsonProperty("yCategories")
     private List<String> yCategories;
+    private List<SeriesDef> series;   // 단일 차트일 때 사용
 
-    private List<SeriesDef> series;   // 1개 이상
+    // ===== 다중 차트 모드 필드 =====
+    private List<ChartData> charts;   // 다중 차트일 때 사용
+
+    /**
+     * 다중 차트 모드에서 각 Column 값에 대한 차트 데이터
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class ChartData {
+        private String columnKey;      // Column 축의 특정 값 (예: "KR", "US", "JP")
+        private String yField;         // Row 축 필드명
+        private List<String> yCategories;  // 이 Column에 대한 Row 축 카테고리
+        private List<SeriesDef> series;    // 메트릭 데이터
+    }
 
     @Data
     @NoArgsConstructor

@@ -20,9 +20,10 @@ public class MyPagePresetController {
     public PresetListResponseDTO list(Authentication auth,
                                       @RequestParam(defaultValue = "0") int page,
                                       @RequestParam(defaultValue = "10") int size,
-                                      @RequestParam(required = false) String type) {
+                                      @RequestParam(required = false) String type,
+                                      @RequestParam(required = false) String origin) {
         Long userId = (Long) auth.getPrincipal();
-        return service.findMyPresets(userId, page, size, type);
+        return service.findMyPresets(userId, page, size, type, origin);
     }
 
     @PatchMapping("/{id}/favorite")
