@@ -29,18 +29,18 @@ public class RepositoryLoggingAspect {
 
             // 1초 이상 걸린 쿼리는 WARN
             if (executionTime > 1000) {
-                log.warn("⚠️ SLOW QUERY: {} took {}ms", methodName, executionTime);
+                log.warn("SLOW QUERY: {} took {}ms", methodName, executionTime);
             } else if (executionTime > 500) {
-                log.info("🐌 {} took {}ms", methodName, executionTime);
+                log.info("{} took {}ms", methodName, executionTime);
             } else {
-                log.debug("✅ {} took {}ms", methodName, executionTime);
+                log.debug("{} took {}ms", methodName, executionTime);
             }
 
             return result;
 
         } catch (Exception e) {
             long executionTime = System.currentTimeMillis() - start;
-            log.error("❌ {} failed after {}ms: {}",
+            log.error("{} failed after {}ms: {}",
                     methodName, executionTime, e.getMessage());
             throw e;
         }

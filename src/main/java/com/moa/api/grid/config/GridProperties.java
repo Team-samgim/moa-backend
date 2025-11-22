@@ -7,9 +7,6 @@ import java.util.Map;
 
 /**
  * Grid API 설정 프로퍼티
- *
- * GridConfig에서 Bean으로 생성되므로
- * application.yml 수정 불필요
  */
 @Data
 public class GridProperties {

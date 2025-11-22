@@ -18,14 +18,6 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 비동기 집계 서비스
- *
- * 성능 개선:
- * - AS-IS: 집계 5초 소요 → 클라이언트 5초 대기
- * - TO-BE: 즉시 응답 → 백그라운드 처리
- *
- * 중복 요청 처리:
- * - 동일한 요청이 여러 번 들어와도 실제로는 1번만 계산
- * - 캐시 히트: O(1) 즉시 반환
  */
 @Slf4j
 @Service
@@ -61,7 +53,7 @@ public class GridAsyncService {
         // 2. 이미 실행 중인 작업이 있으면 재사용
         CompletableFuture<AggregateResponseDTO> existing = runningTasks.get(cacheKey);
         if (existing != null) {
-            log.debug("🔄 Task already running for key: {}", cacheKey);
+            log.debug("Task already running for key: {}", cacheKey);
             return existing;
         }
 
@@ -69,13 +61,13 @@ public class GridAsyncService {
         CompletableFuture<AggregateResponseDTO> future = CompletableFuture
                 .supplyAsync(() -> {
                     long start = System.currentTimeMillis();
-                    log.info("🚀 Starting aggregate task: {}", cacheKey);
+                    log.info("Starting aggregate task: {}", cacheKey);
 
                     try {
                         AggregateResponseDTO result = repository.aggregate(req);
                         long elapsed = System.currentTimeMillis() - start;
 
-                        log.info("✅ Aggregate completed in {}ms: {}", elapsed, cacheKey);
+                        log.info("Aggregate completed in {}ms: {}", elapsed, cacheKey);
 
                         // 결과 캐싱
                         resultCache.put(cacheKey, new CachedResult(result));
@@ -86,7 +78,7 @@ public class GridAsyncService {
                         return result;
 
                     } catch (Exception e) {
-                        log.error("❌ Aggregate failed: {}", cacheKey, e);
+                        log.error("Aggregate failed: {}", cacheKey, e);
                         throw e;
 
                     } finally {
@@ -141,7 +133,7 @@ public class GridAsyncService {
         CompletableFuture.delayedExecutor(delayMinutes, TimeUnit.MINUTES)
                 .execute(() -> {
                     resultCache.remove(key);
-                    log.debug("🗑️ Cache cleaned up: {}", key);
+                    log.debug("Cache cleaned up: {}", key);
                 });
     }
 

@@ -43,13 +43,6 @@ import java.util.*;
 
 /**
  * Grid Export Service
- *
- * 개선사항:
- * - ExportValidator 추가
- * - ExportException 사용
- * - ExportProperties 설정 사용
- * - 로깅 강화
- * - 트랜잭션 관리
  */
 @Slf4j
 @Service

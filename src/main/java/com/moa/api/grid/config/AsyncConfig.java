@@ -50,7 +50,7 @@ public class AsyncConfig implements AsyncConfigurer {
 
         executor.initialize();
 
-        log.info("✅ Async executor initialized - core: {}, max: {}, queue: {}",
+        log.info("Async executor initialized - core: {}, max: {}, queue: {}",
                 asyncConfig.getCorePoolSize(),
                 asyncConfig.getMaxPoolSize(),
                 asyncConfig.getQueueCapacity()
@@ -62,7 +62,7 @@ public class AsyncConfig implements AsyncConfigurer {
     @Override
     public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
         return (throwable, method, params) -> {
-            log.error("❌ Async exception in method [{}] with params {}",
+            log.error("Async exception in method [{}] with params {}",
                     method.getName(),
                     params,
                     throwable

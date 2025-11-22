@@ -8,15 +8,6 @@ import java.util.List;
 
 /**
  * SQL 쿼리를 Fluent API로 조립하는 Builder
- *
- * 사용 예시:
- * SqlDTO query = SqlQueryBuilder
- *     .select("col1", "col2")
- *     .from("table t")
- *     .where(whereClause)
- *     .orderBy("col1", "DESC")
- *     .limit(100)
- *     .build();
  */
 public class SqlQueryBuilder {
 

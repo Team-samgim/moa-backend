@@ -9,11 +9,6 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * HTTP Page Metrics Controller
- *
- * 개선사항:
- * - @Slf4j 추가
- * - @Validated 추가
- * - 로깅 추가
  */
 @Slf4j
 @RestController

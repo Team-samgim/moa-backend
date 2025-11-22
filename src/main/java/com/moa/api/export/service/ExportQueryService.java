@@ -1,14 +1,15 @@
 package com.moa.api.export.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.moa.api.export.config.ExportProperties;
 import com.moa.api.export.dto.CsvPreviewDTO;
 import com.moa.api.export.dto.DownloadUrlDTO;
 import com.moa.api.export.dto.ExportFileItemDTO;
 import com.moa.api.export.dto.ExportFileListResponseDTO;
 import com.moa.api.export.entity.ExportFile;
+import com.moa.api.export.exception.ExportException;
 import com.moa.api.export.repository.ExportFileRepository;
 import com.moa.api.preset.repository.PresetRepository;
-import com.moa.global.aws.S3Props;
 import com.moa.global.aws.S3Uploader;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,148 +32,343 @@ import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Export Query Service
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ExportQueryService {
 
-    private final ExportFileRepository repo;
-    private final PresetRepository presetRepo;
+    private final ExportFileRepository exportFileRepository;
+    private final PresetRepository presetRepository;
     private final S3Uploader s3Uploader;
-    private final S3Client s3;
-    private final S3Props s3Props;
+    private final S3Client s3Client;
+    private final ExportProperties exportProperties;
 
-    // type: SEARCH|PIVOT|CHART -> GRID|PIVOT|CHART
-    private String mapType(String t) {
-        if (t == null) return "GRID";
-        String k = t.trim().toUpperCase();
-        return switch (k) {
-            case "SEARCH", "GRID" -> "GRID";
-            case "PIVOT" -> "PIVOT";
-            case "CHART" -> "CHART";
+    /**
+     * Export 파일 목록 조회
+     */
+    @Transactional(readOnly = true)
+    public ExportFileListResponseDTO list(String type, int page, int size) {
+        log.debug("Fetching export file list: type={}, page={}, size={}", type, page, size);
+
+        Long memberId = resolveMemberId();
+        String normalizedType = normalizeType(type);
+
+        // 페이지 파라미터 검증
+        int validPage = Math.max(page, 0);
+        int validSize = Math.max(Math.min(size, 100), 1); // 최대 100개
+
+        Pageable pageable = PageRequest.of(validPage, validSize);
+
+        Page<ExportFile> filePage = exportFileRepository
+                .findByMember_IdAndExportTypeOrderByCreatedAtDesc(
+                        memberId,
+                        normalizedType,
+                        pageable
+                );
+
+        List<ExportFileItemDTO> items = filePage.getContent().stream()
+                .map(this::convertToItemDTO)
+                .collect(Collectors.toList());
+
+        log.debug("Found {} export files for member {}", items.size(), memberId);
+
+        return ExportFileListResponseDTO.builder()
+                .items(items)
+                .page(filePage.getNumber())
+                .size(filePage.getSize())
+                .totalPages(filePage.getTotalPages())
+                .totalItems(filePage.getTotalElements())
+                .build();
+    }
+
+    /**
+     * Export 파일 삭제
+     */
+    @Transactional
+    public void delete(Long exportId) {
+        log.info("Deleting export file: exportId={}", exportId);
+
+        Long memberId = resolveMemberId();
+
+        ExportFile exportFile = exportFileRepository
+                .findByExportIdAndMember_Id(exportId, memberId)
+                .orElseThrow(() -> new ExportException(
+                        ExportException.ErrorCode.FILE_NOT_FOUND,
+                        "파일을 찾을 수 없거나 접근 권한이 없습니다: exportId=" + exportId
+                ));
+
+        // 프리셋 정보 백업
+        Integer presetId = extractPresetId(exportFile);
+
+        // S3 객체 삭제 시도 (실패해도 계속 진행)
+        deleteS3ObjectSafely(exportFile);
+
+        // DB에서 파일 삭제
+        exportFileRepository.delete(exportFile);
+        log.info("Deleted export file from DB: exportId={}", exportId);
+
+        // 고아 프리셋 삭제
+        deleteOrphanPresetIfNeeded(presetId, memberId);
+
+        log.info("Export file deletion completed: exportId={}", exportId);
+    }
+
+    /**
+     * 다운로드 URL 생성 (Presigned URL)
+     */
+    @Transactional(readOnly = true)
+    public DownloadUrlDTO presign(Long exportId) {
+        log.debug("Generating presigned URL for export file: exportId={}", exportId);
+
+        Long memberId = resolveMemberId();
+
+        ExportFile exportFile = exportFileRepository
+                .findByExportIdAndMember_Id(exportId, memberId)
+                .orElseThrow(() -> new ExportException(
+                        ExportException.ErrorCode.FILE_NOT_FOUND,
+                        "파일을 찾을 수 없거나 접근 권한이 없습니다: exportId=" + exportId
+                ));
+
+        try {
+            String url = s3Uploader.presign(
+                    exportFile.getBucket(),
+                    exportFile.getObjectKey(),
+                    Duration.ofMinutes(exportProperties.getPresign().getDownloadExpirationMinutes())
+            );
+
+            log.debug("Generated presigned URL for exportId={}", exportId);
+
+            return DownloadUrlDTO.builder()
+                    .httpUrl(url)
+                    .build();
+
+        } catch (Exception e) {
+            log.error("Failed to generate presigned URL for exportId={}", exportId, e);
+            throw new ExportException(
+                    ExportException.ErrorCode.S3_DOWNLOAD_FAILED,
+                    e
+            );
+        }
+    }
+
+    /**
+     * CSV 미리보기
+     */
+    @Transactional(readOnly = true)
+    public CsvPreviewDTO preview(Long exportId, int limit) {
+        log.debug("Generating CSV preview: exportId={}, limit={}", exportId, limit);
+
+        Long memberId = resolveMemberId();
+
+        ExportFile exportFile = exportFileRepository
+                .findByExportIdAndMember_Id(exportId, memberId)
+                .orElseThrow(() -> new ExportException(
+                        ExportException.ErrorCode.FILE_NOT_FOUND,
+                        "파일을 찾을 수 없거나 접근 권한이 없습니다: exportId=" + exportId
+                ));
+
+        // CSV가 아니면 에러
+        if (!"CSV".equalsIgnoreCase(exportFile.getFileFormat())) {
+            throw new ExportException(
+                    ExportException.ErrorCode.INVALID_REQUEST,
+                    "CSV 파일만 미리보기가 가능합니다: format=" + exportFile.getFileFormat()
+            );
+        }
+
+        try {
+            return readCsvPreview(exportFile, Math.max(1, Math.min(limit, 100)));
+
+        } catch (ExportException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to read CSV preview for exportId={}", exportId, e);
+            throw new ExportException(
+                    ExportException.ErrorCode.S3_DOWNLOAD_FAILED,
+                    e
+            );
+        }
+    }
+
+    /* ========== Private Helper Methods ========== */
+
+    /**
+     * 인증된 사용자 ID 조회
+     */
+    private Long resolveMemberId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new ExportException(ExportException.ErrorCode.UNAUTHORIZED);
+        }
+
+        Object principal = auth.getPrincipal();
+        if (principal instanceof Long memberId) {
+            return memberId;
+        }
+
+        throw new ExportException(
+                ExportException.ErrorCode.UNAUTHORIZED,
+                "지원하지 않는 principal 타입: " + principal.getClass().getName()
+        );
+    }
+
+    /**
+     * Export Type 정규화
+     */
+    private String normalizeType(String type) {
+        if (type == null || type.isBlank()) {
+            return "GRID";
+        }
+
+        String normalized = type.trim().toUpperCase();
+
+        // 하위 호환성: SEARCH -> GRID
+        if ("SEARCH".equals(normalized)) {
+            return "GRID";
+        }
+
+        return switch (normalized) {
+            case "GRID", "PIVOT", "CHART" -> normalized;
             default -> "GRID";
         };
     }
 
-    private Long me() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) throw new IllegalStateException("인증 정보 없음");
-        Object p = auth.getPrincipal();
-        if (p instanceof Long id) return id;
-        throw new IllegalStateException("지원하지 않는 principal: " + p);
-    }
+    /**
+     * ExportFile -> ExportFileItemDTO 변환
+     */
+    private ExportFileItemDTO convertToItemDTO(ExportFile file) {
+        JsonNode config = extractPresetConfig(file);
+        String layer = extractLayer(config);
+        Integer presetId = extractPresetId(file);
 
-    @Transactional(readOnly = true)
-    public ExportFileListResponseDTO list(String type, int page, int size) {
-        Long memberId = me();
-        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
-        String t = normalizeType(type);
-        Page<ExportFile> slice =
-                repo.findByMember_IdAndExportTypeOrderByCreatedAtDesc(memberId, t, pageable);
-
-        var items = slice.getContent().stream().map(f -> {
-            JsonNode cfg = (f.getPreset() != null) ? f.getPreset().getConfig() : null;
-            String layer = (cfg != null && cfg.hasNonNull("layer")) ? cfg.get("layer").asText() : null;
-            Integer presetId = (f.getPreset() != null) ? f.getPreset().getPresetId() : null;
-            return ExportFileItemDTO.builder()
-                    .fileId(f.getExportId())
-                    .fileName(f.getFileName())
-                    .exportType(f.getExportType())
-                    .layer(layer)
-                    .createdAt(f.getCreatedAt())
-                    .presetId(presetId)
-                    .config(cfg) // 필요 없으면 null로 바꿔도 됨
-                    .build();
-        }).collect(Collectors.toList());
-
-        return ExportFileListResponseDTO.builder()
-                .items(items)
-                .page(slice.getNumber())
-                .size(slice.getSize())
-                .totalPages(slice.getTotalPages())
-                .totalItems(slice.getTotalElements())
+        return ExportFileItemDTO.builder()
+                .fileId(file.getExportId())
+                .fileName(file.getFileName())
+                .exportType(file.getExportType())
+                .layer(layer)
+                .createdAt(file.getCreatedAt())
+                .presetId(presetId)
+                .config(config)
                 .build();
     }
 
-    @Transactional
-    public void delete(Long exportId) {
-        Long memberId = me();
-        ExportFile f = repo.findByExportIdAndMember_Id(exportId, memberId)
-                .orElseThrow(() -> new NoSuchElementException("파일이 없거나 권한이 없습니다."));
+    /**
+     * Preset Config 추출
+     */
+    private JsonNode extractPresetConfig(ExportFile file) {
+        if (file.getPreset() == null) {
+            return null;
+        }
+        return file.getPreset().getConfig();
+    }
 
-        // S3 객체 먼저 시도 삭제(실패해도 파일/프리셋 삭제는 진행)
+    /**
+     * Layer 추출
+     */
+    private String extractLayer(JsonNode config) {
+        if (config == null || !config.hasNonNull("layer")) {
+            return null;
+        }
+        return config.get("layer").asText();
+    }
+
+    /**
+     * Preset ID 추출
+     */
+    private Integer extractPresetId(ExportFile file) {
+        if (file.getPreset() == null) {
+            return null;
+        }
+        return file.getPreset().getPresetId();
+    }
+
+    /**
+     * S3 객체 안전하게 삭제 (실패해도 예외 던지지 않음)
+     */
+    private void deleteS3ObjectSafely(ExportFile file) {
         try {
-            s3Uploader.delete(f.getBucket(), f.getObjectKey());
+            s3Uploader.delete(file.getBucket(), file.getObjectKey());
+            log.debug("Deleted S3 object: bucket={}, key={}",
+                    file.getBucket(), file.getObjectKey());
         } catch (Exception e) {
-            log.warn("S3 삭제 실패(무시): {}", e.toString());
+            log.warn("Failed to delete S3 object (continuing): bucket={}, key={}, error={}",
+                    file.getBucket(), file.getObjectKey(), e.getMessage());
+        }
+    }
+
+    /**
+     * 고아 프리셋 삭제
+     */
+    private void deleteOrphanPresetIfNeeded(Integer presetId, Long memberId) {
+        if (presetId == null) {
+            return;
         }
 
-        // 현재 파일이 참조하던 preset 백업
-        var preset = f.getPreset();
-        Integer presetId = (preset != null) ? preset.getPresetId() : null;
+        // 해당 프리셋을 참조하는 다른 파일이 있는지 확인
+        long remainingReferences = exportFileRepository.countByPreset_PresetId(presetId);
 
-        // 1) 파일 삭제
-        repo.delete(f);
+        if (remainingReferences == 0L) {
+            // 더 이상 참조하는 파일이 없으면 프리셋 삭제
+            try {
+                int affected = presetRepository.deleteOne(memberId, presetId);
 
-        // 2) 프리셋 고아 여부 확인 후 삭제
-        if (presetId != null) {
-            long remain = repo.countByPreset_PresetId(presetId);
-            if (remain == 0L) {
-                // 다른 파일이 더 이상 참조하지 않으면 프리셋 삭제
-                try {
-                    int affected = presetRepo.deleteOne(memberId, presetId);
-                    if (affected == 0) {
-                        log.debug("프리셋 삭제 없음(이미 삭제되었거나 소유자 불일치): presetId={}", presetId);
-                    }
-                } catch (Exception e) {
-                    log.warn("프리셋 삭제 실패(무시): presetId={}, err={}", presetId, e.toString());
+                if (affected > 0) {
+                    log.info("Deleted orphan preset: presetId={}", presetId);
+                } else {
+                    log.debug("Preset not deleted (already deleted or not owner): presetId={}",
+                            presetId);
                 }
-            } else {
-                log.debug("프리셋 보존: presetId={}, 남은 참조 파일 수={}", presetId, remain);
+            } catch (Exception e) {
+                log.warn("Failed to delete orphan preset (ignoring): presetId={}, error={}",
+                        presetId, e.getMessage());
             }
+        } else {
+            log.debug("Preset preserved (still referenced): presetId={}, references={}",
+                    presetId, remainingReferences);
         }
     }
 
-    @Transactional(readOnly = true)
-    public DownloadUrlDTO presign(Long exportId) {
-        Long memberId = me();
-        ExportFile f = repo.findByExportIdAndMember_Id(exportId, memberId)
-                .orElseThrow(() -> new NoSuchElementException("파일이 없거나 권한이 없습니다."));
-        String url = s3Uploader.presign(f.getBucket(), f.getObjectKey(), Duration.ofMinutes(5));
-        return DownloadUrlDTO.builder().httpUrl(url).build();
-    }
-
-    @Transactional(readOnly = true)
-    public CsvPreviewDTO preview(Long exportId, int limit) throws Exception {
-        Long memberId = me();
-        ExportFile f = repo.findByExportIdAndMember_Id(exportId, memberId)
-                .orElseThrow(() -> new NoSuchElementException("파일이 없거나 권한이 없습니다."));
-
-        // S3에서 바로 스트리밍 파싱 (헤더 + 상위 N행)
-        var get = GetObjectRequest.builder()
-                .bucket(f.getBucket())
-                .key(f.getObjectKey())
+    /**
+     * CSV 미리보기 읽기
+     */
+    private CsvPreviewDTO readCsvPreview(ExportFile file, int limit) throws Exception {
+        GetObjectRequest getRequest = GetObjectRequest.builder()
+                .bucket(file.getBucket())
+                .key(file.getObjectKey())
                 .build();
 
-        try (var in = s3.getObject(get);
-             var reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+        try (var inputStream = s3Client.getObject(getRequest);
+             var reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
 
-            CSVFormat fmt = CSVFormat.DEFAULT.builder()
-                    .setHeader()                   // 첫 줄을 헤더로
+            CSVFormat format = CSVFormat.DEFAULT.builder()
+                    .setHeader()
                     .setSkipHeaderRecord(true)
                     .build();
 
-            try (CSVParser parser = new CSVParser(reader, fmt)) {
+            try (CSVParser parser = new CSVParser(reader, format)) {
                 List<String> headers = parser.getHeaderNames();
                 List<Map<String, String>> rows = new ArrayList<>();
 
-                int i = 0;
-                for (CSVRecord r : parser) {
+                int count = 0;
+                for (CSVRecord record : parser) {
+                    if (count >= limit) {
+                        break;
+                    }
+
                     Map<String, String> row = new LinkedHashMap<>();
-                    for (String h : headers) row.put(h, r.get(h));
+                    for (String header : headers) {
+                        row.put(header, record.get(header));
+                    }
+
                     rows.add(row);
-                    if (++i >= Math.max(1, limit)) break;
+                    count++;
                 }
+
+                log.debug("CSV preview generated: exportId={}, headers={}, rows={}",
+                        file.getExportId(), headers.size(), rows.size());
 
                 return CsvPreviewDTO.builder()
                         .columns(headers)
@@ -181,15 +377,4 @@ public class ExportQueryService {
             }
         }
     }
-
-    private String normalizeType(String t) {
-        if (t == null) return "GRID";
-        String k = t.trim().toUpperCase();
-        if (k.equals("SEARCH")) return "GRID"; // 임시 하위호환
-        return switch (k) {
-            case "GRID", "PIVOT", "CHART" -> k;
-            default -> "GRID";
-        };
-    }
-
 }

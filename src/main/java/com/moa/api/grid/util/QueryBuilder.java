@@ -16,10 +16,6 @@ import static com.moa.api.grid.util.OrderBySanitizer.sanitizeOrderBy;
 
 /**
  * QueryBuilder
- *
- * 개선사항:
- * 1. SqlQueryBuilder 패턴 활용으로 가독성 대폭 향상
- * 2. StringBuilder 완전 제거
  */
 @Slf4j
 @Component

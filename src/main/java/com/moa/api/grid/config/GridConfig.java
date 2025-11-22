@@ -7,10 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Grid API 설정 (Java Config 방식)
- *
- * application.yml을 건드리지 않고 Java 코드로만 설정 관리
- * 환경별 설정이 필요하면 @Profile로 분리 가능
+ * Grid API 설정
  */
 @Configuration
 public class GridConfig {

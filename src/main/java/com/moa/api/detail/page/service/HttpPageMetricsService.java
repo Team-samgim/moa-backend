@@ -13,12 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * HTTP Page Metrics Service
  * 235개 컬럼을 계층적 DTO로 변환
- *
- * 개선사항:
- * - HttpPageValidator 추가
- * - HttpPageException 사용
- * - 로깅 추가
- * - @Transactional(readOnly = true)
  */
 @Slf4j
 @Service

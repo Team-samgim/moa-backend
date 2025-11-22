@@ -3,14 +3,14 @@ package com.moa.api.export.config;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
 
 /**
  * Export 설정
  */
 @Getter
 @Setter
-@Configuration
+@Component
 @ConfigurationProperties(prefix = "moa.export")
 public class ExportProperties {
 

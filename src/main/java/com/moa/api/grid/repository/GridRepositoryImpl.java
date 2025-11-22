@@ -17,10 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * GridRepositoryImpl
- *
- * 개선사항:
- * 1. SqlQueryBuilder 패턴 적용
- * 2. StringBuilder 제거
  */
 @Slf4j
 @Repository

@@ -14,9 +14,6 @@ import static com.moa.api.grid.util.JsonSupport.*;
 
 /**
  * WHERE 절 빌더
- *
- * 개선사항:
- * 1. Exception 처리 강화 (empty 리턴 대신 명확한 에러)
  */
 @Slf4j
 public class WhereBuilder {

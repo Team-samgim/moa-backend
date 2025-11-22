@@ -29,7 +29,7 @@ public class GridController {
     private final GridAsyncService asyncService;
 
     /**
-     * 동기 집계 (기존 호환성 유지)
+     * 동기 집계
      */
     @PostMapping("/aggregate")
     public AggregateResponseDTO aggregate(
@@ -39,12 +39,6 @@ public class GridController {
 
     /**
      * 비동기 집계 (새로운 API)
-     *
-     * 장점:
-     * - 즉시 응답 (100ms 이하)
-     * - 백그라운드 처리
-     * - 중복 요청 자동 병합
-     * - 자동 캐싱 (10분)
      */
     @PostMapping("/aggregate/async")
     public DeferredResult<ResponseEntity<AggregateResponseDTO>> aggregateAsync(
@@ -56,7 +50,7 @@ public class GridController {
 
         // 타임아웃 핸들러
         result.onTimeout(() -> {
-            log.warn("⏱️ Aggregate request timed out");
+            log.warn("Aggregate request timed out");
             result.setErrorResult(
                     ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT)
                             .body(null)
@@ -72,7 +66,7 @@ public class GridController {
                     result.setResult(ResponseEntity.ok(response));
                 })
                 .exceptionally(ex -> {
-                    log.error("❌ Aggregate failed", ex);
+                    log.error("Aggregate failed", ex);
                     result.setErrorResult(
                             ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                                     .body(null)
@@ -167,18 +161,6 @@ public class GridController {
         log.info("[GET /grid/columns] layer={}", layer);
         return gridService.getColumnsWithType(layer);
     }
-
-    /**
-     * Export (CSV/Excel)
-     */
-    @PostMapping("/grid/export")
-    public ResponseEntity<byte[]> export(@RequestBody ExportGridRequestDTO req) {
-        log.info("[POST /grid/export] layer={}", req.getLayer());
-        // TODO: Export 구현
-        return ResponseEntity.ok().body(new byte[0]);
-    }
-
-    /* ---------- Helper Methods ---------- */
 
     private static void sanitize(DistinctValuesRequestDTO r) {
         r.setOffset(Math.max(0, r.getOffset()));

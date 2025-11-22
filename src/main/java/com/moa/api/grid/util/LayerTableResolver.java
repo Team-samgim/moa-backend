@@ -8,9 +8,6 @@ import java.util.Locale;
 
 /**
  * 레이어명 → 실제 테이블명 변환
- *
- * AS-IS: static 메서드 + 하드코딩
- * TO-BE: Component + GridProperties 주입
  */
 @Component
 @RequiredArgsConstructor

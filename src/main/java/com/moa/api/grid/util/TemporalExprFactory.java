@@ -9,9 +9,6 @@ import java.util.List;
 
 /**
  * 시간 관련 SQL 표현식 생성
- *
- * 변경사항:
- * 1. GridProperties 주입 (하드코딩된 타임존 제거)
  */
 @Component
 @RequiredArgsConstructor

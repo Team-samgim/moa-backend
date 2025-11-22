@@ -13,9 +13,6 @@ public class HttpPageValidator {
 
     /**
      * Row Key 유효성 검증
-     *
-     * 형식: {timestamp}#{src_ip}#{dst_ip}#{src_port}#{dst_port}#{page_idx}
-     * 예시: 1640995200.123456#192.168.1.1#10.0.0.1#50000#80#1
      */
     public void validateRowKey(String rowKey) {
         if (rowKey == null || rowKey.isBlank()) {
