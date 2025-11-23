@@ -7,7 +7,9 @@ import com.moa.api.notification.domain.Notification;
 import com.moa.api.notification.dto.NotificationCreateRequestDto;
 import com.moa.api.notification.dto.NotificationListResponseDto;
 import com.moa.api.notification.dto.NotificationResponseDto;
+import com.moa.api.notification.exception.NotificationException;
 import com.moa.api.notification.repository.NotificationRepository;
+import com.moa.api.notification.validation.NotificationValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -19,122 +21,367 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Notification Service
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final NotificationValidator validator;
     private final ObjectMapper objectMapper;
 
-    // 알림 목록 (무한스크롤)
+    /**
+     * 알림 목록 조회 (무한 스크롤)
+     *
+     * @param memberId 회원 ID
+     * @param cursor 커서 (이전 마지막 알림 ID)
+     * @param size 페이지 크기
+     * @return 알림 목록
+     */
     @Transactional(readOnly = true)
     public NotificationListResponseDto getNotifications(Long memberId, Long cursor, int size) {
-        var pageable = PageRequest.of(0, size);
+        log.debug("Getting notifications: memberId={}, cursor={}, size={}",
+                memberId, cursor, size);
 
-        Slice<Notification> slice;
-        if (cursor == null) {
-            slice = notificationRepository.findByMemberIdOrderByIdDesc(memberId, pageable);
-        } else {
-            slice = notificationRepository.findByMemberIdAndIdLessThanOrderByIdDesc(memberId, cursor, pageable);
-        }
-
-        List<NotificationResponseDto> items = slice.getContent().stream()
-                .map(this::toDto)
-                .toList();
-
-        Long nextCursor = slice.hasNext() && !items.isEmpty()
-                ? items.get(items.size() - 1).id()
-                : null;
-
-        long unreadCount = notificationRepository.countByMemberIdAndIsReadFalse(memberId);
-
-        return new NotificationListResponseDto(items, nextCursor, slice.hasNext(), unreadCount);
-    }
-
-    // 알림 생성 (시스템 내부에서 호출)
-    public NotificationResponseDto createNotification(Long memberId, NotificationCreateRequestDto req) {
-        String configJson = toJson(req.config());
-        Notification notification = new Notification(
-                memberId,
-                req.type(),
-                req.title(),
-                req.content(),
-                configJson
-        );
-        Notification saved = notificationRepository.save(notification);
-        return toDto(saved);
-    }
-
-    // 단건 읽음 처리
-    public void markAsRead(Long memberId, Long notificationId) {
-        Notification notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> new IllegalArgumentException("알림을 찾을 수 없습니다. id=" + notificationId));
-
-        if (!notification.getMemberId().equals(memberId)) {
-            throw new IllegalStateException("본인 알림만 읽음 처리할 수 있습니다.");
-        }
-
-        if (!notification.isRead()) {
-            notification.markRead();
-            notificationRepository.save(notification); // 명시적으로 저장
-            log.debug("알림 읽음 처리 완료: notificationId={}, memberId={}", notificationId, memberId);
-        }
-    }
-
-    // 전체 읽음 처리
-    public void markAllAsRead(Long memberId) {
-        // 간단하게: 현재 페이지 전체 불러와서 isRead true로 변경
-        // (실 서비스면 bulk update 쿼리로 바꾸는 것도 가능)
-        List<Notification> notifications =
-                notificationRepository.findByMemberIdOrderByIdDesc(memberId, PageRequest.of(0, 1000))
-                        .getContent();
-
-        int updatedCount = 0;
-        for (Notification n : notifications) {
-            if (!n.isRead()) {
-                n.markRead();
-                updatedCount++;
-            }
-        }
-
-        if (updatedCount > 0) {
-            notificationRepository.saveAll(notifications); // 명시적으로 저장
-            log.debug("전체 알림 읽음 처리 완료: memberId={}, updatedCount={}", memberId, updatedCount);
-        }
-    }
-
-    // ===== 내부 유틸 =====
-
-    private NotificationResponseDto toDto(Notification n) {
-        Map<String, Object> config = fromJson(n.getConfigJson());
-        return new NotificationResponseDto(
-                n.getId(),
-                n.getType(),
-                n.getTitle(),
-                n.getContent(),
-                config,
-                n.isRead(),
-                n.getCreatedAt()
-        );
-    }
-
-    private String toJson(Map<String, Object> map) {
-        if (map == null) return "{}";
         try {
-            return objectMapper.writeValueAsString(map);
-        } catch (JsonProcessingException e) {
+            // 1) 파라미터 검증
+            validator.validateCursor(cursor);
+            int normalizedSize = validator.normalizeSize(size);
+
+            // 2) 알림 조회
+            PageRequest pageable = PageRequest.of(0, normalizedSize);
+
+            Slice<Notification> slice;
+            if (cursor == null) {
+                // 첫 페이지
+                slice = notificationRepository.findByMemberIdOrderByIdDesc(memberId, pageable);
+            } else {
+                // 다음 페이지 (cursor-based pagination)
+                slice = notificationRepository.findByMemberIdAndIdLessThanOrderByIdDesc(
+                        memberId,
+                        cursor,
+                        pageable
+                );
+            }
+
+            // 3) DTO 변환
+            List<NotificationResponseDto> items = slice.getContent().stream()
+                    .map(this::toDto)
+                    .toList();
+
+            // 4) 다음 커서 계산
+            Long nextCursor = calculateNextCursor(slice, items);
+
+            // 5) 읽지 않은 개수 조회
+            long unreadCount = notificationRepository.countByMemberIdAndIsReadFalse(memberId);
+
+            log.debug("Found {} notifications for memberId={}, unreadCount={}",
+                    items.size(), memberId, unreadCount);
+
+            return new NotificationListResponseDto(
+                    items,
+                    nextCursor,
+                    slice.hasNext(),
+                    unreadCount
+            );
+
+        } catch (NotificationException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Unexpected error while getting notifications: memberId={}", memberId, e);
+            throw new NotificationException(
+                    NotificationException.ErrorCode.DATABASE_ERROR,
+                    e
+            );
+        }
+    }
+
+    /**
+     * 알림 생성
+     *
+     * @param memberId 회원 ID
+     * @param req 알림 생성 요청
+     * @return 생성된 알림
+     */
+    @Transactional
+    public NotificationResponseDto createNotification(Long memberId, NotificationCreateRequestDto req) {
+        log.info("Creating notification: memberId={}, type={}, title={}",
+                memberId, req.type(), req.title());
+
+        try {
+            // 1) 검증
+            validator.validateCreateRequest(req);
+
+            // 2) Config를 JSON으로 변환
+            String configJson = serializeConfig(req.config());
+
+            // 3) 알림 생성
+            Notification notification = new Notification(
+                    memberId,
+                    req.type().trim(),
+                    req.title().trim(),
+                    req.content().trim(),
+                    configJson
+            );
+
+            // 4) 저장
+            Notification saved = notificationRepository.save(notification);
+
+            log.info("Notification created successfully: notificationId={}, memberId={}",
+                    saved.getId(), memberId);
+
+            return toDto(saved);
+
+        } catch (NotificationException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Unexpected error while creating notification: memberId={}", memberId, e);
+            throw new NotificationException(
+                    NotificationException.ErrorCode.NOTIFICATION_CREATION_FAILED,
+                    e
+            );
+        }
+    }
+
+    /**
+     * 단건 읽음 처리
+     *
+     * @param memberId 회원 ID
+     * @param notificationId 알림 ID
+     */
+    @Transactional
+    public void markAsRead(Long memberId, Long notificationId) {
+        log.info("Marking notification as read: notificationId={}, memberId={}",
+                notificationId, memberId);
+
+        try {
+            // 1) Notification ID 검증
+            validator.validateNotificationId(notificationId);
+
+            // 2) 알림 조회
+            Notification notification = notificationRepository.findById(notificationId)
+                    .orElseThrow(() -> new NotificationException(
+                            NotificationException.ErrorCode.NOTIFICATION_NOT_FOUND,
+                            "알림을 찾을 수 없습니다: notificationId=" + notificationId
+                    ));
+
+            // 3) 소유자 확인
+            if (!notification.getMemberId().equals(memberId)) {
+                throw new NotificationException(
+                        NotificationException.ErrorCode.FORBIDDEN,
+                        "본인의 알림만 읽음 처리할 수 있습니다"
+                );
+            }
+
+            // 4) 읽음 처리 (이미 읽은 경우 스킵)
+            if (!notification.isRead()) {
+                notification.markRead();
+                notificationRepository.save(notification);
+                log.info("Notification marked as read: notificationId={}", notificationId);
+            } else {
+                log.debug("Notification already read: notificationId={}", notificationId);
+            }
+
+        } catch (NotificationException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Unexpected error while marking notification as read: notificationId={}",
+                    notificationId, e);
+            throw new NotificationException(
+                    NotificationException.ErrorCode.NOTIFICATION_UPDATE_FAILED,
+                    e
+            );
+        }
+    }
+
+    /**
+     * 전체 읽음 처리
+     *
+     * @param memberId 회원 ID
+     */
+    @Transactional
+    public void markAllAsRead(Long memberId) {
+        log.info("Marking all notifications as read: memberId={}", memberId);
+
+        try {
+            // Bulk Update 쿼리 사용
+            int updatedCount = notificationRepository.markAllAsReadByMemberId(memberId);
+
+            log.info("Marked {} notifications as read for memberId={}", updatedCount, memberId);
+
+        } catch (Exception e) {
+            log.error("Unexpected error while marking all notifications as read: memberId={}",
+                    memberId, e);
+            throw new NotificationException(
+                    NotificationException.ErrorCode.NOTIFICATION_UPDATE_FAILED,
+                    e
+            );
+        }
+    }
+
+    /**
+     * 읽지 않은 알림 개수 조회
+     *
+     * @param memberId 회원 ID
+     * @return 읽지 않은 알림 개수
+     */
+    @Transactional(readOnly = true)
+    public long getUnreadCount(Long memberId) {
+        log.debug("Getting unread count: memberId={}", memberId);
+
+        try {
+            long count = notificationRepository.countByMemberIdAndIsReadFalse(memberId);
+
+            log.debug("Unread count for memberId={}: {}", memberId, count);
+
+            return count;
+
+        } catch (Exception e) {
+            log.error("Unexpected error while getting unread count: memberId={}", memberId, e);
+            throw new NotificationException(
+                    NotificationException.ErrorCode.DATABASE_ERROR,
+                    e
+            );
+        }
+    }
+
+    /**
+     * Grid CSV Export 완료 알림 전송
+     *
+     * @param memberId 회원 ID
+     * @param fileName 파일명
+     * @param exportId Export ID
+     */
+    @Transactional
+    public void notifyGridExportCompleted(Long memberId, String fileName, Long exportId) {
+        log.info("Sending grid export notification: memberId={}, fileName={}, exportId={}",
+                memberId, fileName, exportId);
+
+        try {
+            Map<String, Object> config = Map.of(
+                    "exportId", exportId,
+                    "fileName", fileName,
+                    "exportType", "GRID"
+            );
+
+            NotificationCreateRequestDto request = new NotificationCreateRequestDto(
+                    "INFO",
+                    "그리드 CSV 내보내기 완료",
+                    String.format("'%s' 파일이 성공적으로 생성되었습니다.", fileName),
+                    config
+            );
+
+            createNotification(memberId, request);
+
+            log.info("Grid export notification sent: memberId={}, exportId={}", memberId, exportId);
+
+        } catch (Exception e) {
+            // 알림 전송 실패는 전체 작업을 실패시키지 않음
+            log.error("Failed to send grid export notification: memberId={}, exportId={}",
+                    memberId, exportId, e);
+        }
+    }
+
+    /**
+     * Search Preset 저장 완료 알림 전송
+     *
+     * @param memberId 회원 ID
+     * @param presetName 프리셋 이름
+     * @param presetId Preset ID
+     */
+    @Transactional
+    public void notifyPresetSaved(Long memberId, String presetName, Integer presetId) {
+        log.info("Sending preset saved notification: memberId={}, presetName={}, presetId={}",
+                memberId, presetName, presetId);
+
+        try {
+            Map<String, Object> config = Map.of(
+                    "presetId", presetId,
+                    "presetName", presetName,
+                    "presetType", "SEARCH"
+            );
+
+            NotificationCreateRequestDto request = new NotificationCreateRequestDto(
+                    "INFO",
+                    "검색 프리셋 저장 완료",
+                    String.format("'%s' 프리셋이 성공적으로 저장되었습니다.", presetName),
+                    config
+            );
+
+            createNotification(memberId, request);
+
+            log.info("Preset saved notification sent: memberId={}, presetId={}", memberId, presetId);
+
+        } catch (Exception e) {
+            // 알림 전송 실패는 전체 작업을 실패시키지 않음
+            log.error("Failed to send preset saved notification: memberId={}, presetId={}",
+                    memberId, presetId, e);
+        }
+    }
+
+    /**
+     * Notification -> DTO 변환
+     */
+    private NotificationResponseDto toDto(Notification notification) {
+        Map<String, Object> config = deserializeConfig(notification.getConfigJson());
+
+        return new NotificationResponseDto(
+                notification.getId(),
+                notification.getType(),
+                notification.getTitle(),
+                notification.getContent(),
+                config,
+                notification.isRead(),
+                notification.getCreatedAt()
+        );
+    }
+
+    /**
+     * Config Map -> JSON String 변환
+     */
+    private String serializeConfig(Map<String, Object> config) {
+        if (config == null || config.isEmpty()) {
             return "{}";
         }
+
+        try {
+            return objectMapper.writeValueAsString(config);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize config to JSON", e);
+            throw new NotificationException(
+                    NotificationException.ErrorCode.JSON_SERIALIZE_ERROR,
+                    e
+            );
+        }
     }
 
-    private Map<String, Object> fromJson(String json) {
-        if (json == null || json.isBlank()) return Collections.emptyMap();
-        try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
+    /**
+     * JSON String -> Config Map 변환
+     */
+    private Map<String, Object> deserializeConfig(String json) {
+        if (json == null || json.isBlank()) {
             return Collections.emptyMap();
         }
+
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.warn("Failed to deserialize config JSON, returning empty map: {}", e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    /**
+     * 다음 커서 계산
+     */
+    private Long calculateNextCursor(Slice<Notification> slice, List<NotificationResponseDto> items) {
+        if (!slice.hasNext() || items.isEmpty()) {
+            return null;
+        }
+
+        return items.get(items.size() - 1).id();
     }
 }

@@ -3,6 +3,8 @@ package com.moa.api.notification.domain;
 
 import jakarta.persistence.*;
 import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 
@@ -19,7 +21,7 @@ public class Notification {
     private Long memberId;
 
     @Column(name = "type", nullable = false, length = 50)
-    private String type; // 예: ANOMALY_5XX_RATIO, HIGH_TRAFFIC, INFO 등
+    private String type;
 
     @Column(name = "title", nullable = false, length = 200)
     private String title;
@@ -28,6 +30,7 @@ public class Notification {
     private String content;
 
     @Column(name = "config", nullable = false, columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String configJson; // JSON 문자열로 저장 (DTO에서 Map으로 변환)
 
     @Column(name = "is_read", nullable = false)

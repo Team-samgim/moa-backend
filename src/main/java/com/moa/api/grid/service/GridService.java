@@ -2,6 +2,7 @@ package com.moa.api.grid.service;
 
 import com.moa.api.grid.dto.*;
 import com.moa.api.grid.repository.GridRepositoryImpl;
+import com.moa.api.grid.validation.GridValidator;
 import com.moa.api.search.dto.SearchDTO;
 import com.moa.api.search.service.SearchExecuteService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -20,9 +21,12 @@ public class GridService {
 
     private final GridRepositoryImpl gridRepository;
     private final SearchExecuteService executeService;
+    private final GridValidator validator;  // 추가
     private final ObjectMapper om = new ObjectMapper();
 
-    // 필터 Distinct
+    /**
+     * 필터 Distinct - Validation 추가
+     */
     public FilterResponseDTO getDistinctValues(
             String layer,
             String field,
@@ -33,15 +37,19 @@ public class GridService {
             boolean includeSelfFromClient,
             String orderBy,
             String order,
-            String baseSpecJson
-    ) {
+            String baseSpecJson) {
+
+        // Validation
+        validator.validateLayer(layer);
+        validator.validateFilterModel(filterModel);
+        validator.validateBaseSpec(baseSpecJson);
+
         // 클라 의도 OR 자기필터 감지
         boolean includeSelf = includeSelfFromClient || hasSelfFilter(filterModel, field);
 
         var page = gridRepository.getDistinctValuesPaged(
                 layer, field, filterModel, includeSelf, search, offset, limit, orderBy, order, baseSpecJson);
 
-        // 캐스팅 제거
         List<Object> values = page.values().stream().map(v -> (Object) v).toList();
 
         return FilterResponseDTO.builder()
@@ -55,14 +63,12 @@ public class GridService {
                 .build();
     }
 
-    // 같은 필드에 어떤 필터든 있으면 true (field-name의 "-suffix" 무시)
     private boolean hasSelfFilter(String filterModel, String field) {
         if (filterModel == null || filterModel.isBlank() || field == null || field.isBlank()) return false;
         try {
             JsonNode root = om.readTree(filterModel);
             String target = safeFieldName(field);
 
-            // 키 전부 순회하며 안전필드명으로 비교
             for (Iterator<String> it = root.fieldNames(); it.hasNext(); ) {
                 String k = it.next();
                 if (!safeFieldName(k).equals(target)) continue;
@@ -85,10 +91,23 @@ public class GridService {
     }
 
     /**
-     * 집계 (date 제외, number/string/ip/mac)
+     * 집계
      */
     public AggregateResponseDTO aggregate(AggregateRequestDTO req) {
+        // Validation
+        validator.validateLayer(req.getLayer());
+        validator.validateFilterModel(req.getFilterModel());
+        validator.validateBaseSpec(req.getBaseSpecJson());
+
         return gridRepository.aggregate(req);
+    }
+
+    /**
+     * 컬럼 메타데이터 조회
+     */
+    public List<SearchResponseDTO.ColumnDTO> getColumnsWithType(String layer) {
+        validator.validateLayer(layer);
+        return gridRepository.getColumnsWithType(layer);
     }
 
     /**
@@ -98,7 +117,9 @@ public class GridService {
         log.info("[GridService] 받은 요청 layer={}, columns={}, conditions={}, time={}",
                 req.getLayer(), req.getColumns(), req.getConditions(), req.getTime());
 
-        // 1) 데이터 조회
+        // Validation
+        validator.validateLayer(req.getLayer());
+
         SearchDTO out = executeService.execute(req);
         log.info("[GridService] rows={}, total={}",
                 (out.getRows() != null ? out.getRows().size() : null), out.getTotal());
@@ -106,14 +127,11 @@ public class GridService {
             log.debug("[GridService] 첫 row keys={}", out.getRows().get(0).keySet());
         }
 
-        // 2) layer 결정(일관되게 소문자 기본)
         String layer = (req.getLayer() == null || req.getLayer().isBlank()) ? "http_page" : req.getLayer();
 
-        // 3) 전체 컬럼 메타
         var allColumns = gridRepository.getColumnsWithType(layer);
         log.info("[GridService] 전체 컬럼 수={}", allColumns.size());
 
-        // 4) 요청 컬럼만 필터링(순서 보존) - O(n) 매핑
         List<String> requested = req.getColumns();
         List<SearchResponseDTO.ColumnDTO> filteredColumns;
         if (requested != null && !requested.isEmpty()) {

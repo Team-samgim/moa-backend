@@ -12,10 +12,6 @@ import java.time.LocalDateTime;
 /**
  * HTTP Page Sample Entity
  * http_page_sample 테이블 매핑
- *
- * 주의: 이 엔티티는 조회 전용입니다.
- * 실제 컬럼은 235개이지만, Repository의 @Query로 직접 조회하므로
- * Entity에는 최소한의 필드만 정의합니다.
  */
 @Entity
 @Table(name = "http_page_sample")
