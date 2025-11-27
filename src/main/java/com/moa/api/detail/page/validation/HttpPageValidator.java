@@ -4,6 +4,12 @@ import com.moa.api.detail.page.exception.HttpPageException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+/*****************************************************************************
+ CLASS NAME    : HttpPageValidator
+ DESCRIPTION   : HTTP Page 상세 조회 요청에서 사용하는 Row Key 등의
+ 입력값 유효성 검증을 수행하는 컴포넌트
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * HTTP Page 입력값 검증기
  */
@@ -30,7 +36,7 @@ public class HttpPageValidator {
             );
         }
 
-        // 최대 길이 체크 (500자)
+        // 최대 길이 체크
         if (rowKey.length() > 500) {
             throw new HttpPageException(
                     HttpPageException.ErrorCode.INVALID_ROW_KEY,
@@ -66,7 +72,7 @@ public class HttpPageValidator {
             }
         }
 
-        // 특수 문자 체크 (', ", ;, --, /*, */)
+        // 특수 문자 체크
         if (input.contains("'") || input.contains("\"") ||
                 input.contains(";") || input.contains("--") ||
                 input.contains("/*") || input.contains("*/")) {

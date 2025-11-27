@@ -1,5 +1,11 @@
 package com.moa.api.grid.dto;
 
+/*****************************************************************************
+ CLASS NAME    : AggregateRequestDTO
+ DESCRIPTION   : Grid 집계 요청 DTO (레이어, 필드별 메트릭/필터/베이스 스펙 정의)
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
@@ -44,6 +50,7 @@ public class AggregateRequestDTO {
      */
     @Data
     public static class MetricSpec {
+
         /**
          * 데이터 타입 (number, string, date 등)
          */

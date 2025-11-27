@@ -1,5 +1,11 @@
 package com.moa.api.export.service;
 
+/*****************************************************************************
+ CLASS NAME    : GridExportService
+ DESCRIPTION   : Grid 데이터 CSV Export를 수행하고 S3 업로드 및 메타데이터 저장
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.moa.api.export.dto.ExportCreateResponseDTO;
 import com.moa.api.export.dto.ExportGridRequestDTO;

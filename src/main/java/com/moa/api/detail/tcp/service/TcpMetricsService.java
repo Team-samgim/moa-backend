@@ -1,5 +1,15 @@
 package com.moa.api.detail.tcp.service;
 
+/*****************************************************************************
+ CLASS NAME    : TcpMetricsService
+ DESCRIPTION   : tcp_sample 테이블에서 상세 메트릭을 조회하고
+ 품질/배지/진단 메시지를 계산하여 TcpMetricsDTO로 변환하는 서비스
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+/**
+ * TCP Metrics Service
+ */
+
 import com.moa.api.detail.tcp.dto.TcpMetricsDTO;
 import com.moa.api.detail.tcp.repository.TcpRowSlice;
 import com.moa.api.detail.tcp.repository.TcpSampleRepository;
@@ -40,12 +50,12 @@ public class TcpMetricsService {
         double end = nz(r.getTsSampleEnd());
         double durSec = Math.max(0.001, end - beg);
 
-        // 🆕 플로우 실제 시작/종료 시간
+        // 플로우 실제 시작/종료 시간
         Double tsFirst = r.getTsFirst();
         Double tsLast = r.getTsLast();
         Double tsExpired = r.getTsExpired();
 
-        // === 트래픽 통계 (전체) ===
+        // 트래픽 통계 (전체)
         long len     = nzl(r.getLenDelta());
         long lenReq  = nzl(r.getLenReqDelta());
         long lenRes  = nzl(r.getLenResDelta());
@@ -53,7 +63,7 @@ public class TcpMetricsService {
         long pktsReq = nzl(r.getPktsReqDelta());
         long pktsRes = nzl(r.getPktsResDelta());
 
-        // 🆕 PDU (페이로드만) - 중요!
+        // PDU (페이로드만)
         long lenPdu     = nzl(r.getLenPduDelta());
         long lenPduReq  = nzl(r.getLenPduReqDelta());
         long lenPduRes  = nzl(r.getLenPduResDelta());
@@ -61,11 +71,11 @@ public class TcpMetricsService {
         long pktsPduReq = nzl(r.getPktsPduReqDelta());
         long pktsPduRes = nzl(r.getPktsPduResDelta());
 
-        // 🆕 오버헤드 계산
+        // 오버헤드 계산
         long overhead = len - lenPdu;
         double overheadRate = len > 0 ? (overhead * 100.0 / len) : 0.0;
 
-        // === 재전송 ===
+        // 재전송
         long rtLen       = nzl(r.getRetransmissionLenDelta());
         long rtLenReq    = nzl(r.getRetransmissionLenReqDelta());
         long rtLenRes    = nzl(r.getRetransmissionLenResDelta());
@@ -73,72 +83,72 @@ public class TcpMetricsService {
         long rtCntReq    = nzl(r.getRetransmissionCntReqDelta());
         long rtCntRes    = nzl(r.getRetransmissionCntResDelta());
 
-        // === 순서 오류 ===
+        // 순서 오류
         long oooCnt      = nzl(r.getOutOfOrderCntDelta());
         long oooCntReq   = nzl(r.getOutOfOrderCntReqDelta());
         long oooCntRes   = nzl(r.getOutOfOrderCntResDelta());
         long oooLen      = nzl(r.getOutOfOrderLenDelta());
 
-        // === 패킷 손실 ===
+        // 패킷 손실
         long lostCnt     = nzl(r.getLostSegCntDelta());
         long lostCntReq  = nzl(r.getLostSegCntReqDelta());
         long lostCntRes  = nzl(r.getLostSegCntResDelta());
         long lostLen     = nzl(r.getLostSegLenDelta());
 
-        // 🆕 중복 ACK
+        // 중복 ACK
         long dupAckCnt    = nzl(r.getDupAckCntDelta());
         long dupAckCntReq = nzl(r.getDupAckCntReqDelta());
         long dupAckCntRes = nzl(r.getDupAckCntResDelta());
 
-        // 🆕 ACK 손실
+        // ACK 손실
         long ackLostCnt    = nzl(r.getAckLostCntDelta());
         long ackLostCntReq = nzl(r.getAckLostCntReqDelta());
         long ackLostCntRes = nzl(r.getAckLostCntResDelta());
 
-        // === 체크섬 에러 ===
+        // 체크섬 에러
         long csumCnt     = nzl(r.getChecksumErrorCntDelta());
         long csumCntReq  = nzl(r.getChecksumErrorCntReqDelta());
         long csumCntRes  = nzl(r.getChecksumErrorCntResDelta());
         long csumLen     = nzl(r.getChecksumErrorLenDelta());
 
-        // === 윈도우 ===
-        long zeroWinCnt  = nzl(r.getZeroWinCntDelta());
+        // 윈도우
+        long zeroWinCnt    = nzl(r.getZeroWinCntDelta());
         long zeroWinCntReq = nzl(r.getZeroWinCntReqDelta());
         long zeroWinCntRes = nzl(r.getZeroWinCntResDelta());
-        long winFullCnt  = nzl(r.getWindowFullCntDelta());
+        long winFullCnt    = nzl(r.getWindowFullCntDelta());
         long winFullCntReq = nzl(r.getWindowFullCntReqDelta());
         long winFullCntRes = nzl(r.getWindowFullCntResDelta());
-        long winUpdateCnt= nzl(r.getWinUpdateCntDelta());
+        long winUpdateCnt  = nzl(r.getWinUpdateCntDelta());
 
-        // 🆕 RTT/RTO (가장 중요!) ⭐⭐⭐
+        // RTT/RTO
         long ackRttCntReq = nzl(r.getAckRttCntReq());
         long ackRttCntRes = nzl(r.getAckRttCntRes());
         long ackRtoCntReq = nzl(r.getAckRtoCntReq());
         long ackRtoCntRes = nzl(r.getAckRtoCntRes());
-        long ackRtoTotal = ackRtoCntReq + ackRtoCntRes;
+        long ackRtoTotal  = ackRtoCntReq + ackRtoCntRes;
 
-        // 🆕 세션 상태
-        Integer expired = r.getExpired();
+        // 세션 상태
+        Integer expired          = r.getExpired();
         Integer expiredByTimeout = r.getExpiredByTimeout();
-        Integer sessionTimeout = r.getSessionTimeout();
+        Integer sessionTimeout   = r.getSessionTimeout();
 
-        // === 계산 메트릭 ===
-        double bps = (len * 8.0) / durSec;
+        // 계산 메트릭
+        double bps             = (len * 8.0) / durSec;
         double retransRateBytes = sdiv(rtLen, Math.max(1.0, (double) len));
-        double retransRatePkts = sdiv(rtCnt, Math.max(1.0, (double) pkts));
-        double oooRatePkts = sdiv(oooCnt, Math.max(1.0, (double) pkts));
-        double lossRatePkts = sdiv(lostCnt, Math.max(1.0, (double) pkts));
-        double csumRatePkts = sdiv(csumCnt, Math.max(1.0, (double) pkts));
-        double dupAckRate = sdiv(dupAckCnt, Math.max(1.0, (double) pkts));
-        double reqResRatio = lenRes > 0 ? (double) lenReq / lenRes : 0;
-        boolean ackOnly = (len == 0 && pkts > 0);
-        double avgPktSize = pkts > 0 ? (double) len / pkts : 0;
+        double retransRatePkts  = sdiv(rtCnt, Math.max(1.0, (double) pkts));
+        double oooRatePkts      = sdiv(oooCnt, Math.max(1.0, (double) pkts));
+        double lossRatePkts     = sdiv(lostCnt, Math.max(1.0, (double) pkts));
+        double csumRatePkts     = sdiv(csumCnt, Math.max(1.0, (double) pkts));
+        double dupAckRate       = sdiv(dupAckCnt, Math.max(1.0, (double) pkts));
+        double reqResRatio      = lenRes > 0 ? (double) lenReq / lenRes : 0;
+        boolean ackOnly         = (len == 0 && pkts > 0);
+        double avgPktSize       = pkts > 0 ? (double) len / pkts : 0;
 
-        // 🆕 RTO 비율
+        // RTO 비율
         long rttTotal = ackRttCntReq + ackRttCntRes;
         double rtoRate = rttTotal > 0 ? (ackRtoTotal * 100.0 / rttTotal) : 0.0;
 
-        // === TCP 플래그 ===
+        // TCP 플래그
         long syn       = nzl(r.getTcpFlagStatSynDelta());
         long synack    = nzl(r.getTcpFlagStatSynackDelta());
         long finReq    = nzl(r.getTcpFlagStatFinReqDelta());
@@ -159,7 +169,7 @@ public class TcpMetricsService {
                         ? "정상종료(예상)" :
                         (rstReq > 0 || rstRes > 0) ? "RST 종료" : "불명";
 
-        // === 플래그 맵 ===
+        // 플래그 맵
         Map<String, Long> flags = new LinkedHashMap<>();
         flags.put("syn", syn);
         flags.put("synack", synack);
@@ -172,47 +182,47 @@ public class TcpMetricsService {
         flags.put("pshReq", pshReq);
         flags.put("pshRes", pshRes);
 
-        // === 품질 카운트 (확장) ===
+        // 품질 카운트
         Map<String, Long> quality = new LinkedHashMap<>();
         quality.put("retransCnt", rtCnt);
         quality.put("oooCnt", oooCnt);
         quality.put("lostCnt", lostCnt);
-        quality.put("dupAckCnt", dupAckCnt);      // 🆕
-        quality.put("ackLostCnt", ackLostCnt);    // 🆕
+        quality.put("dupAckCnt", dupAckCnt);
+        quality.put("ackLostCnt", ackLostCnt);
         quality.put("csumCnt", csumCnt);
         quality.put("zeroWinCnt", zeroWinCnt);
         quality.put("winFullCnt", winFullCnt);
         quality.put("winUpdateCnt", winUpdateCnt);
-        quality.put("ackRtoTotal", ackRtoTotal);  // 🆕 가장 중요!
+        quality.put("ackRtoTotal", ackRtoTotal);
 
-        // === 배지 (확장) ===
+        // 배지
         Map<String, String> badges = new HashMap<>();
         badges.put("retrans", level(retransRateBytes, retransWarn, retransCrit));
         badges.put("ooo", level(oooRatePkts, oooWarn, oooCrit));
         badges.put("loss", level(lossRatePkts, lossWarn, lossCrit));
         badges.put("csum", csumCnt > 0 ? "warn" : "ok");
         badges.put("win", (zeroWinCnt > 0 || winFullCnt > 0) ? "warn" : "ok");
-        // 🆕 RTO 배지 (가장 중요!)
+        // RTO 배지
         badges.put("rto",
                 ackRtoTotal >= rtoCrit ? "crit" :
                         ackRtoTotal >= rtoWarn ? "warn" : "ok");
-        // 🆕 오버헤드 배지
+        // 오버헤드 배지
         badges.put("overhead", overheadRate > 30 ? "warn" : "ok");
 
-        // 🆕 품질 점수 계산
+        // 품질 점수 계산
         var qualityScore = calculateQualityScore(
                 retransRatePkts, lossRatePkts, ackRtoTotal,
                 zeroWinCnt, rstReq, rstRes
         );
 
-        // 🆕 진단 메시지 생성
+        // 진단 메시지 생성
         Map<String, String> diagnostics = buildDiagnostics(
                 retransRatePkts, lossRatePkts, oooRatePkts, dupAckRate,
                 ackRtoTotal, rtoRate, zeroWinCnt, winFullCnt,
                 overheadRate, termination, qualityScore.grade()
         );
 
-        // 🆕 환경 정보
+        // 환경 정보
         var env = new TcpMetricsDTO.Environment(
                 r.getCountryNameReq(), r.getCountryNameRes(),
                 r.getContinentNameReq(), r.getContinentNameRes(),
@@ -221,10 +231,10 @@ public class TcpMetricsService {
                 r.getDomesticSub2NameReq(), r.getDomesticSub2NameRes()
         );
 
-        // === DTO 생성 (확장된 버전) ===
+        // DTO 생성
         return new TcpMetricsDTO(
                 r.getRowKey(),
-                r.getSrcMac(), r.getDstMac(),              // 🆕
+                r.getSrcMac(), r.getDstMac(),
                 r.getSrcIp(), r.getSrcPort(),
                 r.getDstIp(), r.getDstPort(),
                 r.getNdpiProtocolApp(),
@@ -233,11 +243,11 @@ public class TcpMetricsService {
 
                 // 시간 정보
                 beg, end,
-                tsFirst, tsLast, tsExpired,                // 🆕
+                tsFirst, tsLast, tsExpired,
                 durSec,
 
                 // 세션 상태
-                expired, expiredByTimeout, sessionTimeout, // 🆕
+                expired, expiredByTimeout, sessionTimeout,
                 null, null, null,  // stoppedTransaction 필드들
 
                 // 속도
@@ -248,62 +258,62 @@ public class TcpMetricsService {
                 pkts, pktsReq, pktsRes,
 
                 // PDU
-                lenPdu, lenPduReq, lenPduRes,              // 🆕
-                pktsPdu, pktsPduReq, pktsPduRes,           // 🆕
-                overhead, overheadRate,                    // 🆕
+                lenPdu, lenPduReq, lenPduRes,
+                pktsPdu, pktsPduReq, pktsPduRes,
+                overhead, overheadRate,
 
                 // 재전송
-                rtCnt, rtCntReq, rtCntRes,                 // 🆕
-                rtLen, rtLenReq, rtLenRes,                 // 🆕
-                retransRateBytes, retransRatePkts,         // 🆕
+                rtCnt, rtCntReq, rtCntRes,
+                rtLen, rtLenReq, rtLenRes,
+                retransRateBytes, retransRatePkts,
 
                 // 순서 오류
-                oooCnt, oooCntReq, oooCntRes,              // 🆕
-                oooLen, 0L, 0L,                            // 🆕
+                oooCnt, oooCntReq, oooCntRes,
+                oooLen, 0L, 0L,
                 oooRatePkts,
 
                 // 패킷 손실
-                lostCnt, lostCntReq, lostCntRes,           // 🆕
-                lostLen, 0L, 0L,                           // 🆕
+                lostCnt, lostCntReq, lostCntRes,
+                lostLen, 0L, 0L,
                 lossRatePkts,
 
                 // 중복 ACK
-                dupAckCnt, dupAckCntReq, dupAckCntRes,     // 🆕
-                0L, dupAckRate,                            // 🆕
+                dupAckCnt, dupAckCntReq, dupAckCntRes,
+                0L, dupAckRate,
 
                 // ACK 손실
-                ackLostCnt, ackLostCntReq, ackLostCntRes,  // 🆕
-                0L,                                        // 🆕
+                ackLostCnt, ackLostCntReq, ackLostCntRes,
+                0L,
 
                 // 체크섬 에러
-                csumCnt, csumCntReq, csumCntRes,           // 🆕
-                csumLen, 0L, 0L,                           // 🆕
+                csumCnt, csumCntReq, csumCntRes,
+                csumLen, 0L, 0L,
                 csumRatePkts,
 
                 // 윈도우
-                zeroWinCnt, zeroWinCntReq, zeroWinCntRes,  // 🆕
-                winFullCnt, winFullCntReq, winFullCntRes,  // 🆕
-                winUpdateCnt, 0L, 0L,                      // 🆕
+                zeroWinCnt, zeroWinCntReq, zeroWinCntRes,
+                winFullCnt, winFullCntReq, winFullCntRes,
+                winUpdateCnt, 0L, 0L,
 
-                // RTT/RTO (가장 중요!)
-                ackRttCntReq, ackRttCntRes,                // 🆕
-                ackRtoCntReq, ackRtoCntRes,                // 🆕
-                ackRtoTotal, rtoRate,                      // 🆕
+                // RTT/RTO
+                ackRttCntReq, ackRttCntRes,
+                ackRtoCntReq, ackRtoCntRes,
+                ackRtoTotal, rtoRate,
 
                 // 패턴
                 reqResRatio, ackOnly, handshake, termination,
-                avgPktSize,                                // 🆕
+                avgPktSize,
 
                 // 맵들
                 flags, quality,
-                qualityScore,                              // 🆕
+                qualityScore,
                 badges,
-                diagnostics,                               // 🆕
-                env                                        // 🆕
+                diagnostics,
+                env
         );
     }
 
-    // 🆕 품질 점수 계산
+    // 품질 점수 계산
     private TcpMetricsDTO.QualityScore calculateQualityScore(
             double retransRate, double lossRate, long rtoTotal,
             long zeroWinCnt, long rstReq, long rstRes) {
@@ -329,7 +339,7 @@ public class TcpMetricsService {
             issues.append("패킷 손실 발생, ");
         }
 
-        // RTO (가장 중요!)
+        // RTO
         if (rtoTotal >= rtoCrit) {
             score -= 25;
             issues.append("빈번한 타임아웃, ");
@@ -365,7 +375,7 @@ public class TcpMetricsService {
         return new TcpMetricsDTO.QualityScore(score, grade, summary);
     }
 
-    // 🆕 진단 메시지 생성
+    // 진단 메시지 생성
     private Map<String, String> buildDiagnostics(
             double retransRate, double lossRate, double oooRate, double dupAckRate,
             long rtoTotal, double rtoRate, long zeroWinCnt, long winFullCnt,
@@ -374,21 +384,13 @@ public class TcpMetricsService {
         Map<String, String> m = new LinkedHashMap<>();
 
         // 품질 등급
-        String emoji = switch (grade) {
-            case "Excellent" -> "✅";
-            case "Good" -> "👍";
-            case "Fair" -> "⚠️";
-            case "Poor" -> "🔴";
-            case "Critical" -> "🚨";
-            default -> "ℹ️";
-        };
-        m.put("quality", emoji + " TCP 연결 품질: " + grade);
+        m.put("quality", "TCP 연결 품질: " + grade);
 
-        // RTO 타임아웃 (가장 중요!)
+        // RTO 타임아웃
         if (rtoTotal > 0) {
-            String severity = rtoTotal >= rtoCrit ? "🚨" :
-                    (rtoTotal >= rtoWarn ? "⚠️" : "ℹ️");
-            m.put("rto", String.format("%s RTO 타임아웃 %d회 발생",
+            String severity = rtoTotal >= rtoCrit ? "CRIT" :
+                    (rtoTotal >= rtoWarn ? "WARN" : "INFO");
+            m.put("rto", String.format("[%s] RTO 타임아웃 %d회 발생",
                     severity, rtoTotal));
 
             if (rtoRate > 10) {
@@ -400,58 +402,58 @@ public class TcpMetricsService {
         // 재전송
         if (retransRate >= retransCrit * 100) {
             m.put("retransCrit", String.format(
-                    "🚨 재전송율 %.2f%% (심각 - 기준 %.1f%%)",
+                    "재전송율 %.2f%% (심각 - 기준 %.1f%%)",
                     retransRate, retransCrit * 100));
         } else if (retransRate >= retransWarn * 100) {
             m.put("retransWarn", String.format(
-                    "⚠️ 재전송율 %.2f%% (경고 - 기준 %.1f%%)",
+                    "재전송율 %.2f%% (경고 - 기준 %.1f%%)",
                     retransRate, retransWarn * 100));
         }
 
         // 패킷 손실
         if (lossRate >= lossCrit * 100) {
             m.put("lossCrit", String.format(
-                    "🚨 패킷 손실률 %.3f%% (심각)", lossRate));
+                    "패킷 손실률 %.3f%% (심각)", lossRate));
         } else if (lossRate > 0) {
             m.put("loss", String.format(
-                    "⚠️ 패킷 손실 발생 (%.3f%%)", lossRate));
+                    "패킷 손실 발생 (%.3f%%)", lossRate));
         }
 
         // 순서 오류
         if (oooRate > 1.0) {
             m.put("outOfOrder", String.format(
-                    "⚠️ 순서 오류율 %.2f%% (네트워크 경로 문제 가능)", oooRate));
+                    "순서 오류율 %.2f%% (네트워크 경로 문제 가능)", oooRate));
         }
 
         // 중복 ACK
         if (dupAckRate > 1.0) {
             m.put("dupAck", String.format(
-                    "⚠️ 중복 ACK 비율 %.2f%% (빠른 재전송 트리거)", dupAckRate));
+                    "중복 ACK 비율 %.2f%% (빠른 재전송 트리거)", dupAckRate));
         }
 
         // Zero Window
         if (zeroWinCnt > 0) {
             m.put("zeroWin", String.format(
-                    "⚠️ Zero Window %d회 (수신측 버퍼 부족)", zeroWinCnt));
+                    "Zero Window %d회 (수신측 버퍼 부족)", zeroWinCnt));
         }
 
         // Window Full
         if (winFullCnt > 0) {
             m.put("winFull", String.format(
-                    "ℹ️ Window Full %d회 (송신측 혼잡)", winFullCnt));
+                    "Window Full %d회 (송신측 혼잡)", winFullCnt));
         }
 
         // 오버헤드
         if (overheadRate > 30) {
             m.put("overhead", String.format(
-                    "ℹ️ TCP 오버헤드 %.1f%% (작은 패킷 많음)", overheadRate));
+                    "TCP 오버헤드 %.1f%% (작은 패킷 많음)", overheadRate));
         }
 
         // 연결 종료
         if ("RST 종료".equals(termination)) {
-            m.put("rst", "🔴 비정상 종료 (RST 플래그)");
+            m.put("rst", "비정상 종료 (RST 플래그)");
         } else if ("정상종료(예상)".equals(termination)) {
-            m.put("fin", "✅ 정상 종료 (FIN/FIN-ACK)");
+            m.put("fin", "정상 종료 (FIN/FIN-ACK)");
         }
 
         return m;

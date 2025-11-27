@@ -7,9 +7,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-/**
- * Grid API 입력값 검증기
- */
+/*****************************************************************************
+ CLASS NAME    : GridValidator
+ DESCRIPTION   : Grid API에 전달되는 입력 JSON(filterModel, baseSpec, layer)을
+ 전역적으로 검증하는 Validator 클래스.
+ - filterModel 구조 검증
+ - baseSpec(time, conditions) 검증
+ - layer 이름 검증
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -17,13 +23,15 @@ public class GridValidator {
 
     private final ObjectMapper objectMapper;
 
+    /* -------------------------------------------------------------------------
+     *  FILTER MODEL 검증
+     * ------------------------------------------------------------------------- */
+
     /**
      * FilterModel JSON 유효성 검증
      */
     public void validateFilterModel(String filterModel) {
-        if (filterModel == null || filterModel.isBlank()) {
-            return; // null/blank는 허용
-        }
+        if (filterModel == null || filterModel.isBlank()) return; // null/blank 허용
 
         try {
             JsonNode root = objectMapper.readTree(filterModel);
@@ -37,20 +45,13 @@ public class GridValidator {
 
             // 각 필드별 검증
             root.fields().forEachRemaining(entry -> {
-                String field = entry.getKey();
-                JsonNode value = entry.getValue();
-
-                validateFilterField(field, value);
+                validateFilterField(entry.getKey(), entry.getValue());
             });
 
         } catch (Exception e) {
-            if (e instanceof GridException) {
-                throw (GridException) e;
-            }
-            throw new GridException(
-                    GridException.ErrorCode.INVALID_FILTER_MODEL,
-                    e
-            );
+            throw (e instanceof GridException)
+                    ? (GridException) e
+                    : new GridException(GridException.ErrorCode.INVALID_FILTER_MODEL, e);
         }
     }
 
@@ -75,13 +76,15 @@ public class GridValidator {
         }
     }
 
+    /* -------------------------------------------------------------------------
+     *  BASE SPEC 검증
+     * ------------------------------------------------------------------------- */
+
     /**
      * BaseSpec JSON 유효성 검증
      */
     public void validateBaseSpec(String baseSpec) {
-        if (baseSpec == null || baseSpec.isBlank()) {
-            return;
-        }
+        if (baseSpec == null || baseSpec.isBlank()) return;
 
         try {
             JsonNode root = objectMapper.readTree(baseSpec);
@@ -100,13 +103,9 @@ public class GridValidator {
             }
 
         } catch (Exception e) {
-            if (e instanceof GridException) {
-                throw (GridException) e;
-            }
-            throw new GridException(
-                    GridException.ErrorCode.INVALID_BASE_SPEC,
-                    e
-            );
+            throw (e instanceof GridException)
+                    ? (GridException) e
+                    : new GridException(GridException.ErrorCode.INVALID_BASE_SPEC, e);
         }
     }
 
@@ -132,13 +131,15 @@ public class GridValidator {
         }
     }
 
+    /* -------------------------------------------------------------------------
+     *  LAYER 검증
+     * ------------------------------------------------------------------------- */
+
     /**
      * Layer 유효성 검증
      */
     public void validateLayer(String layer) {
-        if (layer == null || layer.isBlank()) {
-            return;
-        }
+        if (layer == null || layer.isBlank()) return;
 
         String normalized = layer.toUpperCase();
         if (!isValidLayer(normalized)) {
@@ -150,9 +151,9 @@ public class GridValidator {
     }
 
     private boolean isValidLayer(String layer) {
-        return "HTTP_PAGE".equals(layer) ||
-                "HTTP_URI".equals(layer) ||
-                "TCP".equals(layer) ||
-                "ETHERNET".equals(layer);
+        return "HTTP_PAGE".equals(layer)
+                || "HTTP_URI".equals(layer)
+                || "TCP".equals(layer)
+                || "ETHERNET".equals(layer);
     }
 }

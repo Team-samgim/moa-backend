@@ -1,15 +1,13 @@
 package com.moa.api.detail.uri.repository;
 
-import com.moa.api.detail.uri.entity.HttpUriSample;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-
-import java.util.Optional;
-
+/*****************************************************************************
+ INTERFACE NAME : HttpUriSampleRepository
+ DESCRIPTION    : HTTP URI 샘플 데이터 Repository (http_uri_sample 단건 조회)
+ AUTHOR         : 방대혁
+ ******************************************************************************/
 /**
  * HTTP URI Repository
- * ✅ 실제 CSV 파일의 191개 컬럼 전체 매핑
+ * 실제 CSV 파일의 191개 컬럼 전체 매핑
  *
  * 주요 특징:
  * - HTTP 요청/응답 완전 분석
@@ -18,6 +16,14 @@ import java.util.Optional;
  * - User Agent 파싱
  * - 지리 정보
  */
+
+import com.moa.api.detail.uri.entity.HttpUriSample;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.Optional;
+
 public interface HttpUriSampleRepository extends JpaRepository<HttpUriSample, String> {
 
     @Query(value = """
@@ -86,7 +92,7 @@ public interface HttpUriSampleRepository extends JpaRepository<HttpUriSample, St
               -- 빠른 재전송 (바이트)
               fast_retransmission_len as fastRetransmissionLen,
               fast_retransmission_len_req as fastRetransmissionLenReq,
-              fast_retransmission_len_res as fastRetransmissionLenRes,
+              fast_retransmission_len_res as FastRetransmissionLenRes,
               
               -- 순서 오류 (바이트)
               out_of_order_len as outOfOrderLen,
@@ -199,7 +205,7 @@ public interface HttpUriSampleRepository extends JpaRepository<HttpUriSample, St
               
               -- 요청/응답 카운트
               req_cnt as reqCnt,
-              res_cnt as resCnt,
+              res_cnt as ResCnt,
               
               -- Content Type 카운트
               content_type_html_cnt_req as contentTypeHtmlCntReq,

@@ -1,5 +1,13 @@
 package com.moa.api.export.exception;
 
+/*****************************************************************************
+ CLASS NAME    : ExportExceptionHandler
+ DESCRIPTION   : Export API 전역 예외 처리 클래스
+ - ExportException, NoSuchElementException, IllegalArgumentException,
+ 기타 예외를 공통 포맷(ErrorResponse)으로 변환
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

@@ -1,13 +1,20 @@
 package com.moa.api.export.config;
 
+/*****************************************************************************
+ CLASS NAME    : ExportProperties
+ DESCRIPTION   : CSV/S3/프리사인드 URL 관련 Export 설정 값을
+ application.yml에서 바인딩하는 환경 설정 클래스
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+/**
+ * Export 설정
+ */
+
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-/**
- * Export 설정
- */
 @Getter
 @Setter
 @Component

@@ -1,5 +1,11 @@
 package com.moa.api.grid.exception;
 
+/*****************************************************************************
+ CLASS NAME    : GridExceptionHandler
+ DESCRIPTION   : Grid API 전역 예외 핸들러
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

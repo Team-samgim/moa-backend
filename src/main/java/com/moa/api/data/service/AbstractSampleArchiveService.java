@@ -25,6 +25,13 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/*****************************************************************************
+ CLASS NAME    : AbstractSampleArchiveService
+ DESCRIPTION   : 샘플 데이터 아카이브 공통 로직을 담당하는 추상 서비스
+ - CSV Export → S3 업로드 → 삭제를 템플릿 메서드 패턴으로 공통화
+ - 서브 클래스는 테이블명만 구현하여 재사용
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * Sample Archive Service 추상 클래스
  *

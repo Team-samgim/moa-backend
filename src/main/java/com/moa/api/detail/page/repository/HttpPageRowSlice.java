@@ -1,12 +1,19 @@
 package com.moa.api.detail.page.repository;
 
+/*****************************************************************************
+ INTERFACE NAME : HttpPageRowSlice
+ DESCRIPTION    : HTTP Page Row Projection 인터페이스
+ - 네이티브 쿼리 결과를 235개 컬럼으로 매핑
+ - 상세 메트릭 계산용 원시 데이터를 제공
+ AUTHOR         : 방대혁
+ ******************************************************************************/
 /**
  * HTTP Page Row Slice Interface
  * 235개 컬럼 Projection
  */
 public interface HttpPageRowSlice {
 
-    // ===== 기본 정보 (12개) =====
+    // 기본 정보
     String getRowKey();
     String getSrcIp();
     String getDstIp();
@@ -20,7 +27,7 @@ public interface HttpPageRowSlice {
     String getSrcMac();
     String getDstMac();
 
-    // ===== HTTP 길이 (9개) =====
+    // HTTP 길이
     Long getPageHttpLen();
     Long getPageHttpLenReq();
     Long getPageHttpLenRes();
@@ -31,7 +38,7 @@ public interface HttpPageRowSlice {
     Long getHttpContentLength();
     Long getHttpContentLengthReq();
 
-    // ===== 패킷/TCP 길이 (9개) =====
+    // 패킷/TCP 길이
     Long getPagePktLen();
     Long getPagePktLenReq();
     Long getPagePktLenRes();
@@ -42,7 +49,7 @@ public interface HttpPageRowSlice {
     Long getReqConnErrSessionLen();
     Long getResConnErrSessionLen();
 
-    // ===== TCP 에러 바이트 (24개) =====
+    // TCP 에러 바이트
     Long getRetransmissionLen();
     Long getRetransmissionLenReq();
     Long getRetransmissionLenRes();
@@ -68,13 +75,13 @@ public interface HttpPageRowSlice {
     Long getChecksumErrorLenReq();
     Long getChecksumErrorLenRes();
 
-    // ===== RTT/Ack 카운트 (4개) =====
+    // RTT/Ack 카운트
     Long getPageRttConnCntReq();
     Long getPageRttConnCntRes();
     Long getPageRttAckCntReq();
     Long getPageRttAckCntRes();
 
-    // ===== 페이지 카운트 (15개) =====
+    // 페이지 카운트
     Long getPageReqMakingCnt();
     Long getPageHttpCnt();
     Long getPageHttpCntReq();
@@ -91,7 +98,7 @@ public interface HttpPageRowSlice {
     Long getPageTcpCntRes();
     Long getPageErrorCnt();
 
-    // ===== TCP 에러 카운트 (30개) =====
+    // TCP 에러 카운트
     Long getRetransmissionCnt();
     Long getRetransmissionCntReq();
     Long getRetransmissionCntRes();
@@ -123,7 +130,7 @@ public interface HttpPageRowSlice {
     Long getTcpErrorLenReq();
     Long getTcpErrorLenRes();
 
-    // ===== HTTP 메소드 (20개) =====
+    // HTTP 메소드
     Long getReqMethodGetCnt();
     Long getReqMethodPutCnt();
     Long getReqMethodHeadCnt();
@@ -145,7 +152,7 @@ public interface HttpPageRowSlice {
     Long getReqMethodConnectCntError();
     Long getReqMethodOthCntError();
 
-    // ===== 응답 코드 (10개) =====
+    // 응답 코드
     Long getResCode1xxCnt();
     Long getResCode2xxCnt();
     Long getResCode304Cnt();
@@ -157,7 +164,7 @@ public interface HttpPageRowSlice {
     Long getResCode5xxCnt();
     Long getResCodeOthCnt();
 
-    // ===== 트랜잭션 상태 (11개) =====
+    // 트랜잭션 상태
     Long getStoppedTransactionCnt();
     Long getStoppedTransactionCntReq();
     Long getStoppedTransactionCntRes();
@@ -170,7 +177,7 @@ public interface HttpPageRowSlice {
     Long getTsPageRtoCntReq();
     Long getTsPageRtoCntRes();
 
-    // ===== Content Type (10개) =====
+    // Content Type
     Long getContentTypeHtmlCntReq();
     Long getContentTypeHtmlCntRes();
     Long getContentTypeCssCntReq();
@@ -182,12 +189,12 @@ public interface HttpPageRowSlice {
     Long getContentTypeOthCntReq();
     Long getContentTypeOthCntRes();
 
-    // ===== URI 카운트 (3개) =====
+    // URI 카운트
     Long getUriCnt();
     Long getHttpUriCnt();
     Long getHttpsUriCnt();
 
-    // ===== 시간 메트릭 (22개) =====
+    // 시간 메트릭
     Double getTsFirst();
     Double getTsPageBegin();
     Double getTsPageEnd();
@@ -211,7 +218,7 @@ public interface HttpPageRowSlice {
     Double getTsPageTcpConnectMax();
     Double getTsPageTcpConnectAvg();
 
-    // ===== 성능 메트릭 (18개) =====
+    // 성능 메트릭
     Double getMbps();
     Double getMbpsReq();
     Double getMbpsRes();
@@ -231,13 +238,13 @@ public interface HttpPageRowSlice {
     Double getPpsMaxReq();
     Double getPpsMaxRes();
 
-    // ===== 에러 비율 (4개) =====
+    // 에러 비율
     Double getTcpErrorPercentage();
     Double getTcpErrorPercentageReq();
     Double getTcpErrorPercentageRes();
     Double getPageErrorPercentage();
 
-    // ===== 지리 정보 (10개) =====
+    // 지리 정보
     String getCountryNameReq();
     String getCountryNameRes();
     String getContinentNameReq();
@@ -249,7 +256,7 @@ public interface HttpPageRowSlice {
     String getDomesticSub2NameReq();
     String getDomesticSub2NameRes();
 
-    // ===== HTTP 정보 (18개) =====
+    // HTTP 정보
     String getNdpiProtocolApp();
     String getNdpiProtocolMaster();
     String getSensorDeviceName();
@@ -267,9 +274,9 @@ public interface HttpPageRowSlice {
     String getHttpUri();
     String getHttpUriSplit();
     String getHttpReferer();
-    Integer getIsHttps();  // Integer로 수정 (DB에서 0 또는 1)
+    Integer getIsHttps();
 
-    // ===== User Agent (6개) =====
+    // User Agent
     String getUserAgentSoftwareName();
     String getUserAgentOperatingSystemName();
     String getUserAgentOperatingPlatform();

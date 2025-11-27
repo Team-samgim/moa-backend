@@ -2,13 +2,20 @@ package com.moa.api.detail.page.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+/*****************************************************************************
+ CLASS NAME    : HttpPageMetricsDTO
+ DESCRIPTION   : HTTP Page 상세 메트릭 응답 DTO
+ - 약 235개 컬럼을 계층적 구조(중첩 record)로 캡슐화
+ - 페이지 단위 성능/품질/트래픽/환경 정보를 통합 제공
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * HTTP Page Metrics DTO
  * 235개 컬럼을 계층적 구조로 구성
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record HttpPageMetricsDTO(
-        // 기본 정보
+        // === 기본 정보 ===
         String rowKey,
         String srcIp,
         String dstIp,
@@ -19,7 +26,7 @@ public record HttpPageMetricsDTO(
         Long pageIdx,
         String tsServer,
 
-        // HTTP 기본 정보
+        // === HTTP 기본 정보 ===
         String httpMethod,
         String httpVersion,
         String httpHost,
@@ -33,7 +40,7 @@ public record HttpPageMetricsDTO(
         String httpReferer,
         Boolean isHttps,
 
-        // 페이지 통계
+        // === 페이지 통계 ===
         Long pageSessionCnt,
         Long pageTcpConnectCnt,
         Long uriCnt,
@@ -41,12 +48,12 @@ public record HttpPageMetricsDTO(
         Long httpsUriCnt,
         Long pageErrorCnt,
 
-        // 프로토콜/센서 정보 (최상위로 이동) ⭐
+        // === 프로토콜/센서 정보 ===
         String ndpiProtocolApp,
         String ndpiProtocolMaster,
         String sensorDeviceName,
 
-        // 중첩 구조
+        // === 계층적 서브 구조 ===
         Timing timing,
         Methods methods,
         StatusCodes statusCodes,
@@ -59,6 +66,7 @@ public record HttpPageMetricsDTO(
 
     /**
      * 시간 메트릭
+     * - 페이지 수준의 다양한 구간 시간 및 TCP 연결 시간 통계
      */
     public record Timing(
             Double tsFirst,
@@ -87,6 +95,7 @@ public record HttpPageMetricsDTO(
 
     /**
      * HTTP 메소드 통계
+     * - 메소드별 전체/에러 카운트 및 에러 존재 여부
      */
     public record Methods(
             long getCnt,
@@ -118,7 +127,7 @@ public record HttpPageMetricsDTO(
     public record StatusCodes(
             long code1xxCnt,
             long code2xxCnt,
-            long code304Cnt,     // ← 304가 3xx보다 먼저! (CSV 순서와 일치)
+            long code304Cnt,
             long code3xxCnt,
             long code401Cnt,
             long code403Cnt,
@@ -130,6 +139,7 @@ public record HttpPageMetricsDTO(
 
     /**
      * TCP 품질
+     * - 재전송/순서 오류/손실/ACK 문제/윈도우 관련 에러 등 품질 지표를 집약
      */
     public record TcpQuality(
             long tcpSessionCnt,
@@ -247,7 +257,7 @@ public record HttpPageMetricsDTO(
     ) {}
 
     /**
-     * 성능 메트릭
+     * 성능 메트릭 (Throughput / PPS)
      */
     public record Performance(
             Double mbps,
@@ -271,7 +281,7 @@ public record HttpPageMetricsDTO(
     ) {}
 
     /**
-     * 트래픽 통계
+     * 트래픽 통계 (HTTP/TCP/패킷/Content-Type)
      */
     public record Traffic(
             // HTTP 길이

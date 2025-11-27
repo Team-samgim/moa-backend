@@ -7,23 +7,27 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
+/*****************************************************************************
+ CLASS NAME    : TcpSampleRepository
+ DESCRIPTION   : tcp_sample 테이블에 대한 기본 CRUD 및
+ TCP 상세 메트릭 화면용 Projection(TcpRowSlice) 네이티브 쿼리 제공
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * TCP Sample Repository
- * ✅ 실제 DB 컬럼에 맞춰 수정 완료
- *
- * 주요 변경사항:
- * - ts_first, ts_last 제거 (DB에 없음)
- * - 모든 실제 존재하는 컬럼만 조회
- * - 121개 컬럼 전체 매핑
  */
 public interface TcpSampleRepository extends JpaRepository<TcpSample, String> {
 
+    /**
+     * rowKey 1건에 대한 TCP 세션/품질 지표를
+     * TcpRowSlice Projection으로 조회하는 메서드
+     */
     @Query(value = """
             select
               row_key  as rowKey,
               flow_identifier as flowIdentifier,
             
-              -- 타임스탬프 (실제 존재하는 것만)
+              -- 타임스탬프
               ts_sample_begin as tsSampleBegin,
               ts_sample_end   as tsSampleEnd,
               ts_expired      as tsExpired,
@@ -131,7 +135,7 @@ public interface TcpSampleRepository extends JpaRepository<TcpSample, String> {
               win_update_len_req_delta  as winUpdateLenReqDelta,
               win_update_len_res_delta  as winUpdateLenResDelta,
             
-              -- RTT/RTO (가장 중요!)
+              -- RTT/RTO
               ack_rtt_cnt_req as ackRttCntReq,
               ack_rtt_cnt_res as ackRttCntRes,
               ack_rto_cnt_req as ackRtoCntReq,
@@ -183,10 +187,10 @@ public interface TcpSampleRepository extends JpaRepository<TcpSample, String> {
               sni_hostname         as sniHostname,
             
               -- 지리 정보
-              country_name_req         as countryNameReq,
-              country_name_res         as countryNameRes,
-              continent_name_req       as continentNameReq,
-              continent_name_res       as continentNameRes,
+              country_name_req          as countryNameReq,
+              country_name_res          as countryNameRes,
+              continent_name_req        as continentNameReq,
+              continent_name_res        as continentNameRes,
               domestic_primary_name_req as domesticPrimaryNameReq,
               domestic_primary_name_res as domesticPrimaryNameRes,
               domestic_sub1_name_req    as domesticSub1NameReq,

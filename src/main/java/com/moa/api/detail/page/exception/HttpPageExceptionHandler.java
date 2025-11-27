@@ -8,6 +8,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
 
+/*****************************************************************************
+ CLASS NAME    : HttpPageExceptionHandler
+ DESCRIPTION   : HTTP Page 전역 예외 핸들러
+ - HttpPageException 및 기타 예외를 공통 포맷으로 응답
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * HTTP Page 전역 예외 핸들러
  */

@@ -1,5 +1,11 @@
 package com.moa.api.grid.config;
 
+/*****************************************************************************
+ CLASS NAME    : AsyncConfig
+ DESCRIPTION   : Grid 비동기 처리용 ThreadPool 설정 및 예외 핸들링 구성
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;

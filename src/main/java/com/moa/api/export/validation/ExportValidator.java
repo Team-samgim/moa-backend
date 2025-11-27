@@ -1,5 +1,11 @@
 package com.moa.api.export.validation;
 
+/*****************************************************************************
+ CLASS NAME    : ExportValidator
+ DESCRIPTION   : Export 관련 요청의 입력값(레이어, 컬럼, 파일명 등) 검증
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import com.moa.api.export.dto.ExportGridRequestDTO;
 import com.moa.api.export.exception.ExportException;
 import lombok.extern.slf4j.Slf4j;

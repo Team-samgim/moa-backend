@@ -7,8 +7,16 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
+/*****************************************************************************
+ INTERFACE NAME : EthernetSampleRepository
+ AUTHOR         : 방대혁
+ ******************************************************************************/
 public interface EthernetSampleRepository extends JpaRepository<EthernetSample, String> {
 
+    /**
+     * 단일 rowKey에 대한 Ethernet 집계 데이터 조회
+     * - 상세 화면용 메트릭 계산을 위해 필요한 값들을 한 번에 가져오는 쿼리
+     */
     @Query(value = """
             select
               /* 식별 / 샘플 메타 */

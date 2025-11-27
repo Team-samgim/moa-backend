@@ -10,6 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/*****************************************************************************
+ CLASS NAME    : HttpPageMetricsService
+ DESCRIPTION   : http_page_sample 235개 컬럼을 HttpPageRowSlice로 조회한 뒤
+ HttpPageMetricsDTO 계층 구조로 변환하는 서비스
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * HTTP Page Metrics Service
  * 235개 컬럼을 계층적 DTO로 변환
@@ -441,8 +447,6 @@ public class HttpPageMetricsService {
                 r.getUserAgentLayoutEngineName()
         );
     }
-
-    /* ========== Helper Methods ========== */
 
     private static boolean toBoolean(Integer v) {
         return v != null && v > 0;
