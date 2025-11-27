@@ -11,12 +11,12 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 /**
  * S3 설정
+ * ------------------------------------------------------------
+ * - S3Client / S3Presigner 빈 생성
+ * - AWS SDK v2 사용
+ * - Region 및 CredentialsProvider 설정 주입
  *
- * 개선사항:
- * - @Slf4j 추가
- * - 빈 생성 로그 추가
- * - 명확한 메서드명
- * - 주석 추가
+ * AUTHOR        : 방대혁
  */
 @Slf4j
 @Configuration
@@ -46,10 +46,10 @@ public class S3Config {
 
     /**
      * S3 Presigner 빈 생성
+     * ------------------------------------------------------------
+     * - Presigned URL(다운로드/업로드) 생성에 사용
      *
-     * Presigned URL 생성을 위한 빈
-     *
-     * @param props S3 설정 (application.yml에서 주입)
+     * @param props S3 설정
      * @return S3Presigner
      */
     @Bean

@@ -13,9 +13,16 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-/**
- * Notification Controller
- */
+/*****************************************************************************
+ CLASS NAME    : NotificationController
+ DESCRIPTION   : 알림(Notification) 기능 REST API 컨트롤러
+ - 알림 목록 무한 스크롤 조회
+ - 알림 생성 (테스트/시연용)
+ - 단건 읽음 처리
+ - 전체 읽음 처리
+ - 읽지 않은 알림 개수 조회
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 @Slf4j
 @RestController
 @RequestMapping("/api/notifications")
@@ -28,10 +35,10 @@ public class NotificationController {
     /**
      * 알림 목록 조회 (무한 스크롤)
      *
-     * @param auth 인증 정보
-     * @param cursor 커서 (이전 마지막 알림 ID)
-     * @param size 페이지 크기 (기본 20, 최대 100)
-     * @return 알림 목록
+     * @param auth   인증 정보 (memberId 추출)
+     * @param cursor 마지막 알림 ID (null이면 첫 페이지)
+     * @param size   페이지 크기 (기본: 20, 최대: 100)
+     * @return NotificationListResponseDto (알림 리스트 + hasNext 플래그)
      */
     @GetMapping
     public ResponseEntity<NotificationListResponseDto> getNotifications(
@@ -44,11 +51,8 @@ public class NotificationController {
         log.info("GET /api/notifications - memberId={}, cursor={}, size={}",
                 memberId, cursor, size);
 
-        NotificationListResponseDto response = notificationService.getNotifications(
-                memberId,
-                cursor,
-                size
-        );
+        NotificationListResponseDto response =
+                notificationService.getNotifications(memberId, cursor, size);
 
         log.debug("Found {} notifications for memberId={} (hasNext={})",
                 response.items().size(), memberId, response.hasNext());
@@ -60,8 +64,8 @@ public class NotificationController {
      * 알림 생성 (테스트/시연용)
      *
      * @param auth 인증 정보
-     * @param req 알림 생성 요청
-     * @return 생성된 알림
+     * @param req  알림 생성 요청 DTO
+     * @return 생성된 알림 정보
      */
     @PostMapping
     public ResponseEntity<NotificationResponseDto> createNotification(
@@ -72,10 +76,8 @@ public class NotificationController {
 
         log.info("POST /api/notifications - memberId={}, type={}", memberId, req.type());
 
-        NotificationResponseDto response = notificationService.createNotification(
-                memberId,
-                req
-        );
+        NotificationResponseDto response =
+                notificationService.createNotification(memberId, req);
 
         log.info("Notification created: notificationId={}", response.id());
 
@@ -83,11 +85,11 @@ public class NotificationController {
     }
 
     /**
-     * 단건 읽음 처리
+     * 단일 알림 읽음 처리
      *
      * @param auth 인증 정보
-     * @param notificationId 알림 ID
-     * @return 성공 응답
+     * @param notificationId 읽음 처리할 알림 ID
+     * @return {"ok": true}
      */
     @PatchMapping("/{notificationId}/read")
     public ResponseEntity<Map<String, Object>> markAsRead(
@@ -106,10 +108,10 @@ public class NotificationController {
     }
 
     /**
-     * 전체 읽음 처리
+     * 전체 알림 읽음 처리
      *
      * @param auth 인증 정보
-     * @return 성공 응답
+     * @return {"ok": true}
      */
     @PostMapping("/read-all")
     public ResponseEntity<Map<String, Object>> markAllAsRead(Authentication auth) {
@@ -125,10 +127,10 @@ public class NotificationController {
     }
 
     /**
-     * 읽지 않은 알림 개수 조회
+     * 읽지 않은 알림 수 조회
      *
      * @param auth 인증 정보
-     * @return 읽지 않은 알림 개수
+     * @return {"unreadCount": long}
      */
     @GetMapping("/unread-count")
     public ResponseEntity<Map<String, Long>> getUnreadCount(Authentication auth) {

@@ -8,6 +8,13 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
+/*****************************************************************************
+ CLASS NAME    : HttpPageSampleRepository
+ DESCRIPTION   : http_page_sample 테이블 조회용 JPA Repository
+ - PK(row_key) 기반 기본 CRUD 제공 (JpaRepository)
+ - 네이티브 쿼리로 235개 컬럼 Projection(HttpPageRowSlice) 조회
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * HTTP Page Repository
  * 235개 컬럼 조회
@@ -15,9 +22,15 @@ import java.util.Optional;
 @Repository
 public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, String> {
 
+    /**
+     * row_key 기준 단건 HTTP Page 상세 메트릭 조회
+     * - 네이티브 쿼리 결과를 HttpPageRowSlice Projection으로 매핑
+     *
+     * @param rowKey HTTP Page row_key
+     * @return Optional<HttpPageRowSlice>
+     */
     @Query(value = """
         SELECT
-            -- 기본 정보 (12개)
             row_key,
             src_ip::text,
             dst_ip::text,
@@ -31,7 +44,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             src_mac::text,
             dst_mac::text,
             
-            -- HTTP 길이 (9개)
             page_http_len,
             page_http_len_req,
             page_http_len_res,
@@ -42,7 +54,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             http_content_length,
             http_content_length_req,
             
-            -- 패킷/TCP 길이 (9개)
             page_pkt_len,
             page_pkt_len_req,
             page_pkt_len_res,
@@ -53,7 +64,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             req_conn_err_session_len,
             res_conn_err_session_len,
             
-            -- TCP 에러 바이트 (24개)
             retransmission_len,
             retransmission_len_req,
             retransmission_len_res,
@@ -79,13 +89,11 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             checksum_error_len_req,
             checksum_error_len_res,
             
-            -- RTT/Ack 카운트 (4개)
             page_rtt_conn_cnt_req,
             page_rtt_conn_cnt_res,
             page_rtt_ack_cnt_req,
             page_rtt_ack_cnt_res,
             
-            -- 페이지 카운트 (15개)
             page_req_making_cnt,
             page_http_cnt,
             page_http_cnt_req,
@@ -102,7 +110,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             page_tcp_cnt_res,
             page_error_cnt,
             
-            -- TCP 에러 카운트 (30개)
             retransmission_cnt,
             retransmission_cnt_req,
             retransmission_cnt_res,
@@ -134,7 +141,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             tcp_error_len_req,
             tcp_error_len_res,
             
-            -- HTTP 메소드 (20개)
             req_method_get_cnt,
             req_method_put_cnt,
             req_method_head_cnt,
@@ -156,7 +162,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             req_method_connect_cnt_error,
             req_method_oth_cnt_error,
             
-            -- 응답 코드 (10개)
             res_code_1xx_cnt AS resCode1xxCnt,
             res_code_2xx_cnt AS resCode2xxCnt,
             res_code_304_cnt AS resCode304Cnt,
@@ -168,7 +173,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             res_code_5xx_cnt AS resCode5xxCnt,
             res_code_oth_cnt AS resCodeOthCnt,
             
-            -- 트랜잭션 상태 (11개)
             stopped_transaction_cnt,
             stopped_transaction_cnt_req,
             stopped_transaction_cnt_res,
@@ -181,7 +185,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             ts_page_rto_cnt_req,
             ts_page_rto_cnt_res,
             
-            -- Content Type (10개)
             content_type_html_cnt_req,
             content_type_html_cnt_res,
             content_type_css_cnt_req,
@@ -193,12 +196,10 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             content_type_oth_cnt_req,
             content_type_oth_cnt_res,
             
-            -- URI 카운트 (3개)
             uri_cnt,
             http_uri_cnt,
             https_uri_cnt,
             
-            -- 시간 메트릭 (22개)
             ts_first,
             ts_page_begin,
             ts_page_end,
@@ -222,7 +223,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             ts_page_tcp_connect_max,
             ts_page_tcp_connect_avg,
             
-            -- 성능 메트릭 (18개)
             mbps,
             mbps_req,
             mbps_res,
@@ -242,13 +242,11 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             pps_max_req,
             pps_max_res,
             
-            -- 에러 비율 (4개)
             tcp_error_percentage,
             tcp_error_percentage_req,
             tcp_error_percentage_res,
             page_error_percentage,
             
-            -- 지리 정보 (10개)
             country_name_req,
             country_name_res,
             continent_name_req,
@@ -260,7 +258,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             domestic_sub2_name_req,
             domestic_sub2_name_res,
             
-            -- HTTP 정보 (18개)
             ndpi_protocol_app,
             ndpi_protocol_master,
             sensor_device_name,
@@ -280,7 +277,6 @@ public interface HttpPageSampleRepository extends JpaRepository<HttpPageSample, 
             http_referer,
             is_https,
             
-            -- User Agent (6개)
             user_agent_software_name,
             user_agent_operating_system_name,
             user_agent_operating_platform,

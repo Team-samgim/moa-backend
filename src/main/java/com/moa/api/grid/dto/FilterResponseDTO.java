@@ -1,5 +1,11 @@
 package com.moa.api.grid.dto;
 
+/*****************************************************************************
+ CLASS NAME    : FilterResponseDTO
+ DESCRIPTION   : DISTINCT 필터 응답 DTO
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import lombok.*;
 
 import java.util.List;
@@ -10,6 +16,7 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class FilterResponseDTO {
+
     private String field;
     private List<Object> values;
     private String error;       // 기존 유지

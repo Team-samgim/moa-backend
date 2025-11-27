@@ -19,7 +19,12 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Preset Repository
+ * Preset Repository (JdbcTemplate 기반)
+ * -----------------------------------------------------------
+ * - 복잡한 동적쿼리, JSONB 처리 등을 위해 JPA 대신 JDBC 직접 사용.
+ * - INSERT, SELECT, UPDATE, DELETE 모두 직접 SQL 사용.
+ * - JSONB <-> Map 변환은 ObjectMapper + PGobject 기반으로 처리.
+ * AUTHOR        : 방대혁
  */
 @Slf4j
 @Repository
@@ -29,10 +34,12 @@ public class PresetRepository {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
+
     /**
-     * Preset 삽입
-     *
-     * @return 생성된 preset_id
+     * Preset 생성 (INSERT)
+     * -----------------------------------------------------------
+     * - config(Map) → JSONB 변환 후 저장
+     * - RETURNING preset_id 를 사용하여 생성된 키 반환
      */
     public Integer insert(
             Long memberId,
@@ -46,8 +53,7 @@ public class PresetRepository {
                 memberId, name, type, origin);
 
         try {
-            // Config를 PostgreSQL JSONB로 변환
-            PGobject jsonb = convertToJsonb(config);
+            PGobject jsonb = convertToJsonb(config); // Map → JSONB 변환
 
             String sql = """
                 INSERT INTO public.presets
@@ -68,15 +74,17 @@ public class PresetRepository {
 
         } catch (Exception e) {
             log.error("Failed to insert preset: memberId={}, name={}", memberId, name, e);
-            throw new PresetException(
-                    PresetException.ErrorCode.PRESET_CREATION_FAILED,
-                    e
-            );
+            throw new PresetException(PresetException.ErrorCode.PRESET_CREATION_FAILED, e);
         }
     }
 
+
     /**
-     * 회원의 Preset 목록 조회
+     * Preset 목록 조회 (기본 type 필터)
+     * -----------------------------------------------------------
+     * - 출력: PresetItemDTO 리스트
+     * - 정렬 기준: updated_at DESC, created_at DESC
+     * - 페이징: LIMIT / OFFSET
      */
     public List<PresetItemDTO> findByMember(Long memberId, String type, int page, int size) {
         log.debug("Finding presets: memberId={}, type={}, page={}, size={}",
@@ -92,12 +100,15 @@ public class PresetRepository {
             List<Object> params = new ArrayList<>();
             params.add(memberId);
 
+            // 타입 필터 적용
             if (type != null && !type.isBlank()) {
                 sql += " AND preset_type = ? ";
                 params.add(type);
             }
 
+            // 최신순 정렬
             sql += " ORDER BY updated_at DESC NULLS LAST, created_at DESC ";
+            // 페이징
             sql += " LIMIT ? OFFSET ? ";
 
             params.add(size);
@@ -110,20 +121,19 @@ public class PresetRepository {
             );
 
             log.debug("Found {} presets for memberId={}", result.size(), memberId);
-
             return result;
 
         } catch (Exception e) {
             log.error("Failed to find presets: memberId={}, type={}", memberId, type, e);
-            throw new PresetException(
-                    PresetException.ErrorCode.DATABASE_ERROR,
-                    e
-            );
+            throw new PresetException(PresetException.ErrorCode.DATABASE_ERROR, e);
         }
     }
 
+
     /**
-     * 회원의 Preset 목록 조회 (Origin 필터 포함)
+     * Preset 목록 조회 (Origin 필터 포함)
+     * -----------------------------------------------------------
+     * - origin(SEARCH / EXPORT) 조건을 추가한 버전
      */
     public List<PresetItemDTO> findByMember(
             Long memberId,
@@ -155,34 +165,25 @@ public class PresetRepository {
                 params.add(origin);
             }
 
+            // 정렬 + 페이징
             sql += " ORDER BY updated_at DESC NULLS LAST, created_at DESC ";
             sql += " LIMIT ? OFFSET ? ";
 
             params.add(size);
             params.add(page * size);
 
-            List<PresetItemDTO> result = jdbcTemplate.query(
-                    sql,
-                    getRowMapper(),
-                    params.toArray()
-            );
-
-            log.debug("Found {} presets for memberId={} with origin filter", result.size(), memberId);
-
-            return result;
+            return jdbcTemplate.query(sql, getRowMapper(), params.toArray());
 
         } catch (Exception e) {
             log.error("Failed to find presets with origin: memberId={}, type={}, origin={}",
                     memberId, type, origin, e);
-            throw new PresetException(
-                    PresetException.ErrorCode.DATABASE_ERROR,
-                    e
-            );
+            throw new PresetException(PresetException.ErrorCode.DATABASE_ERROR, e);
         }
     }
 
+
     /**
-     * Preset 개수 조회
+     * Preset 개수 조회 (type 필터)
      */
     public long countByMember(Long memberId, String type) {
         log.debug("Counting presets: memberId={}, type={}", memberId, type);
@@ -198,21 +199,17 @@ public class PresetRepository {
                 count = jdbcTemplate.queryForObject(sql, Long.class, memberId);
             }
 
-            log.debug("Found {} presets for memberId={}", count, memberId);
-
             return count != null ? count : 0L;
 
         } catch (Exception e) {
             log.error("Failed to count presets: memberId={}, type={}", memberId, type, e);
-            throw new PresetException(
-                    PresetException.ErrorCode.DATABASE_ERROR,
-                    e
-            );
+            throw new PresetException(PresetException.ErrorCode.DATABASE_ERROR, e);
         }
     }
 
+
     /**
-     * Preset 개수 조회 (Origin 필터 포함)
+     * Preset 개수 조회 (type + origin 필터)
      */
     public long countByMember(Long memberId, String type, String origin) {
         log.debug("Counting presets with origin: memberId={}, type={}, origin={}",
@@ -235,23 +232,21 @@ public class PresetRepository {
             }
 
             Long count = jdbcTemplate.queryForObject(sql, Long.class, params.toArray());
-
-            log.debug("Found {} presets for memberId={} with origin filter", count, memberId);
-
             return count != null ? count : 0L;
 
         } catch (Exception e) {
             log.error("Failed to count presets with origin: memberId={}, type={}, origin={}",
                     memberId, type, origin, e);
-            throw new PresetException(
-                    PresetException.ErrorCode.DATABASE_ERROR,
-                    e
-            );
+            throw new PresetException(PresetException.ErrorCode.DATABASE_ERROR, e);
         }
     }
 
+
     /**
-     * 특정 Preset 조회 (소유자 확인)
+     * Preset 단건 조회 (소유자 확인 포함)
+     * -----------------------------------------------------------
+     * - preset_id AND member_id 조건을 동시에 검사하여
+     *   “본인 소유 Preset인지" 강하게 보장함.
      */
     public Optional<PresetItemDTO> findOneForOwner(Long memberId, Integer presetId) {
         log.debug("Finding preset for owner: memberId={}, presetId={}", memberId, presetId);
@@ -263,32 +258,22 @@ public class PresetRepository {
                 WHERE preset_id = ? AND member_id = ?
                 """;
 
-            List<PresetItemDTO> result = jdbcTemplate.query(
-                    sql,
-                    getRowMapper(),
-                    presetId,
-                    memberId
-            );
+            List<PresetItemDTO> result = jdbcTemplate.query(sql, getRowMapper(), presetId, memberId);
 
-            if (result.isEmpty()) {
-                log.debug("Preset not found: presetId={}, memberId={}", presetId, memberId);
-                return Optional.empty();
-            }
-
-            log.debug("Found preset: presetId={}", presetId);
-            return Optional.of(result.get(0));
+            return result.isEmpty() ? Optional.empty() : Optional.of(result.get(0));
 
         } catch (Exception e) {
             log.error("Failed to find preset: presetId={}, memberId={}", presetId, memberId, e);
-            throw new PresetException(
-                    PresetException.ErrorCode.DATABASE_ERROR,
-                    e
-            );
+            throw new PresetException(PresetException.ErrorCode.DATABASE_ERROR, e);
         }
     }
 
+
     /**
      * Favorite 상태 변경
+     * -----------------------------------------------------------
+     * - updated_at = now() 자동 갱신
+     * - 영향받은 row 수 반환 (0이면 업데이트 실패)
      */
     public int updateFavorite(Long memberId, Integer presetId, boolean favorite) {
         log.debug("Updating favorite: presetId={}, memberId={}, favorite={}",
@@ -301,25 +286,14 @@ public class PresetRepository {
                 WHERE preset_id = ? AND member_id = ?
                 """;
 
-            int affected = jdbcTemplate.update(sql, favorite, presetId, memberId);
-
-            if (affected > 0) {
-                log.info("Updated favorite: presetId={}, favorite={}", presetId, favorite);
-            } else {
-                log.warn("No preset updated: presetId={}, memberId={}", presetId, memberId);
-            }
-
-            return affected;
+            return jdbcTemplate.update(sql, favorite, presetId, memberId);
 
         } catch (Exception e) {
-            log.error("Failed to update favorite: presetId={}, memberId={}",
-                    presetId, memberId, e);
-            throw new PresetException(
-                    PresetException.ErrorCode.PRESET_UPDATE_FAILED,
-                    e
-            );
+            log.error("Failed to update favorite: presetId={}, memberId={}", presetId, memberId, e);
+            throw new PresetException(PresetException.ErrorCode.PRESET_UPDATE_FAILED, e);
         }
     }
+
 
     /**
      * Preset 삭제
@@ -329,29 +303,19 @@ public class PresetRepository {
 
         try {
             String sql = "DELETE FROM presets WHERE preset_id = ? AND member_id = ?";
-
-            int affected = jdbcTemplate.update(sql, presetId, memberId);
-
-            if (affected > 0) {
-                log.info("Deleted preset: presetId={}, memberId={}", presetId, memberId);
-            } else {
-                log.warn("No preset deleted: presetId={}, memberId={}", presetId, memberId);
-            }
-
-            return affected;
+            return jdbcTemplate.update(sql, presetId, memberId);
 
         } catch (Exception e) {
-            log.error("Failed to delete preset: presetId={}, memberId={}",
-                    presetId, memberId, e);
-            throw new PresetException(
-                    PresetException.ErrorCode.PRESET_DELETE_FAILED,
-                    e
-            );
+            log.error("Failed to delete preset: presetId={}, memberId={}", presetId, memberId, e);
+            throw new PresetException(PresetException.ErrorCode.PRESET_DELETE_FAILED, e);
         }
     }
 
+
     /**
-     * RowMapper 반환
+     * RowMapper — ResultSet → PresetItemDTO 변환
+     * -----------------------------------------------------------
+     * - JSONB(config) → JsonNode 변환 포함
      */
     private RowMapper<PresetItemDTO> getRowMapper() {
         return (rs, rowNum) -> {
@@ -372,8 +336,9 @@ public class PresetRepository {
         };
     }
 
+
     /**
-     * Map을 PostgreSQL JSONB로 변환
+     * Map → PGobject(JSONB)
      */
     private PGobject convertToJsonb(Map<String, Object> config) {
         try {
@@ -381,6 +346,7 @@ public class PresetRepository {
             jsonb.setType("jsonb");
             jsonb.setValue(objectMapper.writeValueAsString(config));
             return jsonb;
+
         } catch (Exception e) {
             log.error("Failed to convert config to JSONB", e);
             throw new PresetException(
@@ -391,7 +357,7 @@ public class PresetRepository {
     }
 
     /**
-     * PostgreSQL JSONB를 JsonNode로 파싱
+     * JSONB → JsonNode 변환
      */
     private JsonNode parseJsonbToNode(PGobject pgObject) {
         try {

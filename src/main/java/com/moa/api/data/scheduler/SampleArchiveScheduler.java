@@ -10,6 +10,12 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/*****************************************************************************
+ CLASS NAME    : SampleArchiveScheduler
+ DESCRIPTION   : 상세 트래픽 샘플(http_page / http_uri / tcp / ethernet)을
+ 주기적으로 S3에 아카이브하고 원본 DB에서 삭제하는 스케줄러
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * Sample Archive Scheduler
  *
@@ -30,6 +36,11 @@ public class SampleArchiveScheduler {
      * 아카이브 스케줄러
      *
      * 매일 오전 9시 9분 실행 (Asia/Seoul 타임존)
+     * - http_page_sample
+     * - tcp_sample
+     * - http_uri_sample
+     * - ethernet_sample
+     * 각 테이블별 7일 이전 데이터를 S3로 이동 후 원본 삭제
      */
     @Scheduled(cron = "0 9 9 * * *", zone = "Asia/Seoul")
     public void archiveJob() {

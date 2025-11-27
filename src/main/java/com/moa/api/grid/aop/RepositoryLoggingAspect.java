@@ -1,5 +1,11 @@
 package com.moa.api.grid.aop;
 
+/*****************************************************************************
+ CLASS NAME    : RepositoryLoggingAspect
+ DESCRIPTION   : Grid Repository 계층 메서드 실행 시간 로깅 AOP
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;

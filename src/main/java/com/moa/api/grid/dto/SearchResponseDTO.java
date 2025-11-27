@@ -1,5 +1,11 @@
 package com.moa.api.grid.dto;
 
+/*****************************************************************************
+ CLASS NAME    : SearchResponseDTO
+ DESCRIPTION   : 그리드 검색 응답 DTO
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,8 +29,8 @@ public class SearchResponseDTO {
     @NoArgsConstructor
     @Builder
     public static class ColumnDTO {
-        private String name;  // 컬럼명
-        private String type;  // 컬럼 타입 (string, number, date, ip, mac 등)
+        private String name;   // 컬럼명
+        private String type;   // 컬럼 타입 (string, number, date, ip, mac 등)
         private String labelKo;
     }
 }

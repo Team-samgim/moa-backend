@@ -1,6 +1,11 @@
 package com.moa.api.grid.controller;
 
-import com.moa.api.export.dto.ExportGridRequestDTO;
+/*****************************************************************************
+ CLASS NAME    : GridController
+ DESCRIPTION   : Grid 데이터 조회/집계 및 DISTINCT 필터링, 캐시 상태 조회 API
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import com.moa.api.grid.dto.*;
 import com.moa.api.grid.service.GridAsyncService;
 import com.moa.api.grid.service.GridService;
@@ -18,6 +23,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * Grid API Controller
+ *
+ * - /aggregate, /aggregate/async : 집계(동기/비동기)
+ * - /aggregate/cache-stats       : 집계 캐시 상태 조회
+ * - /grid/filtering(POST/GET)    : DISTINCT 값 조회
+ * - /grid/search                 : SearchSpec 기반 그리드 데이터 조회
+ * - /grid/columns                : 레이어별 컬럼 메타데이터 조회
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api")
@@ -38,7 +52,7 @@ public class GridController {
     }
 
     /**
-     * 비동기 집계 (새로운 API)
+     * 비동기 집계
      */
     @PostMapping("/aggregate/async")
     public DeferredResult<ResponseEntity<AggregateResponseDTO>> aggregateAsync(

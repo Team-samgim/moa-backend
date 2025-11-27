@@ -1,5 +1,11 @@
 package com.moa.api.export.controller;
 
+/*****************************************************************************
+ CLASS NAME    : ExportController
+ DESCRIPTION   : Grid / Chart / Pivot Export REST API 컨트롤러
+ AUTHOR        : 방대혁, 최이서
+ ******************************************************************************/
+
 import com.moa.api.export.dto.ExportChartRequestDTO;
 import com.moa.api.export.dto.ExportCreateResponseDTO;
 import com.moa.api.export.dto.ExportGridRequestDTO;

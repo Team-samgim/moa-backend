@@ -1,5 +1,11 @@
 package com.moa.api.export.service;
 
+/*****************************************************************************
+ CLASS NAME    : ExportQueryService
+ DESCRIPTION   : Export 파일 목록 조회/삭제 및 S3 CSV 미리보기 제공 서비스
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.moa.api.export.config.ExportProperties;
 import com.moa.api.export.dto.CsvPreviewDTO;
@@ -376,5 +382,13 @@ public class ExportQueryService {
                         .build();
             }
         }
+    }
+
+    private static double nz(Double v) {
+        return v == null ? 0 : v;
+    }
+
+    private static long nzl(Long v) {
+        return v == null ? 0L : v;
     }
 }

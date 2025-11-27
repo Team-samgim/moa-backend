@@ -1,5 +1,11 @@
 package com.moa.api.grid.config;
 
+/*****************************************************************************
+ CLASS NAME    : GridProperties
+ DESCRIPTION   : Grid API 설정 프로퍼티
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import lombok.Data;
 
 import java.util.HashMap;

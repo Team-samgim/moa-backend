@@ -2,12 +2,16 @@ package com.moa.api.detail.uri.dto;
 
 import java.util.Map;
 
+/*****************************************************************************
+ * CLASS NAME    : HttpUriMetricsDTO
+ * DESCRIPTION   : HTTP URI 상세 메트릭을 표현하는 계층형 DTO
+ * AUTHOR        : 방대혁
+ *****************************************************************************/
 /**
  * HTTP URI 메트릭 DTO
- * ✅ 191개 필드 → 계층적 구조로 정리
  */
 public record HttpUriMetricsDTO(
-        // === 기본 정보 ===
+        // 기본 정보
         String rowKey,
         String srcIp,
         Integer srcPort,
@@ -16,28 +20,28 @@ public record HttpUriMetricsDTO(
         Integer dstPort,
         String dstMac,
 
-        // === HTTP 요청 정보 ===
+        // HTTP 요청 정보
         HttpRequest request,
 
-        // === HTTP 응답 정보 ===
+        // HTTP 응답 정보
         HttpResponse response,
 
-        // === 시간 분석 ===
+        // 시간 분석
         TimingAnalysis timing,
 
-        // === 트래픽 통계 ===
+        // 트래픽 통계
         TrafficStats traffic,
 
-        // === TCP 품질 분석 ===
+        // TCP 품질 분석
         TcpQuality tcpQuality,
 
-        // === 성능 메트릭 ===
+        // 성능 메트릭
         Performance performance,
 
-        // === 환경 정보 ===
+        // 환경 정보
         Environment env,
 
-        // === 상태 및 진단 ===
+        // 상태 및 진단
         Status status,
         Map<String, String> diagnostics
 ) {

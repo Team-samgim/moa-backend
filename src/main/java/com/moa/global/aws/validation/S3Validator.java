@@ -10,16 +10,24 @@ import java.util.regex.Pattern;
 
 /**
  * S3 입력값 검증기
+ * ------------------------------------------------------------
+ * - AWS S3 작업(upload/download/delete/presign 등) 수행 전 입력값 검증.
+ * - 버킷 이름 / 객체 키 / 파일 경로 / Content-Type 등 사전 유효성 체크.
+ * - AWS 규격에 맞도록 버킷/키 형식 제한.
+ * - 보안 위험 요소(경로 순회, Null 파일 등) 방지.
+ *
+ * AUTHOR        : 방대혁
  */
 @Slf4j
 @Component
 public class S3Validator {
 
-    // S3 객체 키 규칙: 1-1024자, UTF-8
+    // S3 객체 키 규칙: 1~1024자
     private static final int MAX_KEY_LENGTH = 1024;
 
-    // 버킷 이름 규칙: 3-63자, 소문자/숫자/하이픈
-    private static final Pattern BUCKET_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$");
+    // 버킷 이름 규칙: 3~63자, 소문자/숫자/하이픈
+    private static final Pattern BUCKET_PATTERN =
+            Pattern.compile("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$");
 
     // 파일 크기 제한 (기본 5GB)
     private static final long MAX_FILE_SIZE = 5L * 1024 * 1024 * 1024;
@@ -65,7 +73,7 @@ public class S3Validator {
             );
         }
 
-        // 위험한 경로 순회 패턴 체크
+        // 위험한 경로 순회 패턴 방지
         if (trimmed.contains("../") || trimmed.contains("..\\")) {
             throw new S3Exception(
                     S3Exception.ErrorCode.INVALID_KEY,
@@ -108,6 +116,7 @@ public class S3Validator {
 
         try {
             long size = Files.size(file);
+
             if (size > MAX_FILE_SIZE) {
                 throw new S3Exception(
                         S3Exception.ErrorCode.FILE_TOO_LARGE,
@@ -119,9 +128,10 @@ public class S3Validator {
             if (size == 0) {
                 log.warn("Empty file being uploaded: {}", file);
             }
+
         } catch (Exception e) {
-            if (e instanceof S3Exception) {
-                throw (S3Exception) e;
+            if (e instanceof S3Exception ex) {
+                throw ex;
             }
             throw new S3Exception(
                     S3Exception.ErrorCode.INVALID_FILE,
@@ -139,7 +149,7 @@ public class S3Validator {
             return;
         }
 
-        // 기본적인 MIME 타입 형식 체크
+        // 최소한의 MIME 타입 형식 체크
         if (!contentType.contains("/")) {
             throw new S3Exception(
                     S3Exception.ErrorCode.INVALID_FILE,

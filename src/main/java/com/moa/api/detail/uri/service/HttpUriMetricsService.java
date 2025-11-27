@@ -1,5 +1,15 @@
 package com.moa.api.detail.uri.service;
 
+/*****************************************************************************
+ CLASS NAME    : HttpUriMetricsService
+ DESCRIPTION   : http_uri_sample 테이블에서 상세 메트릭을 조회하고
+ HTTP/TCP 품질·성능 지표를 HttpUriMetricsDTO로 변환하는 서비스
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+/**
+ * HTTP URI Metrics Service
+ */
+
 import com.moa.api.detail.uri.dto.HttpUriMetricsDTO;
 import com.moa.api.detail.uri.dto.HttpUriMetricsDTO.*;
 import com.moa.api.detail.uri.repository.HttpUriSampleRepository;
@@ -78,9 +88,15 @@ public class HttpUriMetricsService {
                 r.getRetransmissionCntRes(), r.getRetransmissionLen(),
                 r.getRetransmissionLenReq(), r.getRetransmissionLenRes(), pktCnt);
 
-        var fastRetrans = buildTcpError(r.getFastRetransmissionLen() != null ? 1L : 0L, 0L, 0L,
-                r.getFastRetransmissionLen(), r.getFastRetransmissionLenReq(),
-                r.getFastRetransmissionLenRes(), pktCnt);
+        var fastRetrans = buildTcpError(
+                r.getFastRetransmissionLen() != null ? 1L : 0L,
+                0L,
+                0L,
+                r.getFastRetransmissionLen(),
+                r.getFastRetransmissionLenReq(),
+                r.getFastRetransmissionLenRes(),
+                pktCnt
+        );
 
         var outOfOrder = buildTcpError(r.getOutOfOrderCnt(), r.getOutOfOrderCntReq(),
                 r.getOutOfOrderCntRes(), r.getOutOfOrderLen(),
@@ -361,16 +377,16 @@ public class HttpUriMetricsService {
             boolean isStoppedTransaction, boolean isIncomplete,
             boolean isTimeout, String grade) {
 
-        if (isTimeout) return "🔴 타임아웃";
-        if (isStoppedTransaction) return "⚠️ 중단됨";
-        if (isIncomplete) return "⚠️ 불완전";
+        if (isTimeout) return "타임아웃";
+        if (isStoppedTransaction) return "중단됨";
+        if (isIncomplete) return "불완전";
 
         return switch (grade) {
-            case "Excellent", "Good" -> "✅ 정상";
-            case "Fair" -> "⚠️ 주의";
-            case "Poor" -> "🟠 불량";
-            case "Critical" -> "🔴 심각";
-            default -> "ℹ️ 알수없음";
+            case "Excellent", "Good" -> "정상";
+            case "Fair" -> "주의";
+            case "Poor" -> "불량";
+            case "Critical" -> "심각";
+            default -> "알수없음";
         };
     }
 
@@ -384,84 +400,76 @@ public class HttpUriMetricsService {
         Map<String, String> m = new LinkedHashMap<>();
 
         // 품질 등급
-        String emoji = switch (grade) {
-            case "Excellent" -> "✅";
-            case "Good" -> "👍";
-            case "Fair" -> "⚠️";
-            case "Poor" -> "🔴";
-            case "Critical" -> "🚨";
-            default -> "ℹ️";
-        };
-        m.put("quality", emoji + " HTTP 통신 품질: " + grade);
+        m.put("quality", "HTTP 통신 품질: " + grade);
 
         // HTTP 상태
         if (httpResPhrase != null && !httpResPhrase.isEmpty()) {
             if (httpResPhrase.equals("OK")) {
-                m.put("httpStatus", "✅ HTTP 응답: " + httpResPhrase);
+                m.put("httpStatus", "HTTP 응답: " + httpResPhrase);
             } else if (httpResPhrase.startsWith("2")) {
-                m.put("httpStatus", "✅ HTTP 응답: " + httpResPhrase);
+                m.put("httpStatus", "HTTP 응답: " + httpResPhrase);
             } else if (httpResPhrase.startsWith("3")) {
-                m.put("httpStatus", "ℹ️ 리다이렉트: " + httpResPhrase);
+                m.put("httpStatus", "리다이렉트: " + httpResPhrase);
             } else if (httpResPhrase.startsWith("4")) {
-                m.put("httpStatus", "⚠️ 클라이언트 에러: " + httpResPhrase);
+                m.put("httpStatus", "클라이언트 에러: " + httpResPhrase);
             } else if (httpResPhrase.startsWith("5")) {
-                m.put("httpStatus", "🔴 서버 에러: " + httpResPhrase);
+                m.put("httpStatus", "서버 에러: " + httpResPhrase);
             }
         }
 
         // 응답 시간
         if (responseTime > 3000) {
             m.put("responseTime", String.format(
-                    "🚨 응답 시간 %.0fms (매우 느림)", responseTime));
+                    "응답 시간 %.0fms (매우 느림)", responseTime));
         } else if (responseTime > 1000) {
             m.put("responseTime", String.format(
-                    "⚠️ 응답 시간 %.0fms (느림)", responseTime));
+                    "응답 시간 %.0fms (느림)", responseTime));
         } else if (responseTime > 0) {
             m.put("responseTime", String.format(
-                    "✅ 응답 시간 %.0fms", responseTime));
+                    "응답 시간 %.0fms", responseTime));
         }
 
         // 타임아웃/불완전
         if (isTimeout) {
-            m.put("timeout", "🔴 타임아웃 발생 - 연결 실패");
+            m.put("timeout", "타임아웃 발생 - 연결 실패");
         }
         if (isIncomplete) {
-            m.put("incomplete", "⚠️ 불완전한 전송 - 데이터 누락 가능");
+            m.put("incomplete", "불완전한 전송 - 데이터 누락 가능");
         }
         if (isStoppedTransaction) {
-            m.put("stopped", "⚠️ 트랜잭션 중단");
+            m.put("stopped", "트랜잭션 중단");
         }
 
         // TCP 에러
         if (retransRate >= 5) {
             m.put("retrans", String.format(
-                    "🚨 재전송율 %.2f%% (심각)", retransRate));
+                    "재전송율 %.2f%% (심각)", retransRate));
         } else if (retransRate > 0) {
             m.put("retrans", String.format(
-                    "⚠️ 재전송율 %.2f%%", retransRate));
+                    "재전송율 %.2f%%", retransRate));
         }
 
         if (lossRate >= 1) {
             m.put("loss", String.format(
-                    "🚨 패킷 손실 %.2f%% (심각)", lossRate));
+                    "패킷 손실 %.2f%% (심각)", lossRate));
         } else if (lossRate > 0) {
             m.put("loss", String.format(
-                    "⚠️ 패킷 손실 %.2f%%", lossRate));
+                    "패킷 손실 %.2f%%", lossRate));
         }
 
         if (rtoTotal > 0) {
             m.put("rto", String.format(
-                    "⚠️ RTO 타임아웃 %d회", rtoTotal));
+                    "RTO 타임아웃 %d회", rtoTotal));
         }
 
         if (zeroWinCnt > 0) {
             m.put("zeroWin", String.format(
-                    "⚠️ Zero Window %d회 (수신측 버퍼 부족)", zeroWinCnt));
+                    "Zero Window %d회 (수신측 버퍼 부족)", zeroWinCnt));
         }
 
         if (windowFullCnt > 0) {
             m.put("winFull", String.format(
-                    "ℹ️ Window Full %d회 (송신측 혼잡)", windowFullCnt));
+                    "Window Full %d회 (송신측 혼잡)", windowFullCnt));
         }
 
         return m;

@@ -1,5 +1,12 @@
 package com.moa.api.detail.page.exception;
 
+/*****************************************************************************
+ CLASS NAME    : HttpPageException
+ DESCRIPTION   : HTTP Page 도메인 전용 커스텀 예외
+ - 에러 코드 기반 메시지 관리
+ - DB 오류 / 잘못된 Row Key / 미존재 Row Key 등 표현
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * HTTP Page 커스텀 예외
  */

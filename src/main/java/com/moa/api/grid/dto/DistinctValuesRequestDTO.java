@@ -1,8 +1,17 @@
 package com.moa.api.grid.dto;
 
+/*****************************************************************************
+ CLASS NAME    : DistinctValuesRequestDTO
+ DESCRIPTION   : DISTINCT 값 조회 요청 DTO
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
+/**
+ * DISTINCT 값 조회 요청 DTO
+ */
 @Data
 public class DistinctValuesRequestDTO {
 

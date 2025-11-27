@@ -1,5 +1,11 @@
 package com.moa.api.export.controller;
 
+/*****************************************************************************
+ CLASS NAME    : ExportQueryController
+ DESCRIPTION   : Export 파일 조회/삭제/다운로드/미리보기 REST API 컨트롤러
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import com.moa.api.export.dto.CsvPreviewDTO;
 import com.moa.api.export.dto.DownloadUrlDTO;
 import com.moa.api.export.dto.ExportFileListResponseDTO;

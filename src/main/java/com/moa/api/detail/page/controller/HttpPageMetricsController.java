@@ -7,6 +7,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+/*****************************************************************************
+ CLASS NAME    : HttpPageMetricsController
+ DESCRIPTION   : HTTP Page 메트릭 상세 조회용 REST 컨트롤러
+ - rowKey 기반 단건 HTTP Page 상세 메트릭 조회
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * HTTP Page Metrics Controller
  */

@@ -1,5 +1,11 @@
 package com.moa.api.grid.config;
 
+/*****************************************************************************
+ CLASS NAME    : GridConfig
+ DESCRIPTION   : Grid API 기본 설정 및 레이어/필드 메타 매핑 구성
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 

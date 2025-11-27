@@ -1,5 +1,12 @@
 package com.moa.api.export.entity;
 
+/*****************************************************************************
+ CLASS NAME    : ExportFile
+ DESCRIPTION   : Grid/Pivot/Chart Export 결과 파일 메타데이터 엔티티
+ (S3 버킷/오브젝트 키 및 상태 관리)
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+
 import com.moa.api.member.entity.Member;
 import com.moa.api.preset.entity.Preset;
 import jakarta.persistence.*;

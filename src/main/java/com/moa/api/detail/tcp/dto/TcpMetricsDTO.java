@@ -2,14 +2,19 @@ package com.moa.api.detail.tcp.dto;
 
 import java.util.Map;
 
+/*****************************************************************************
+ CLASS NAME    : TcpMetricsDTO
+ DESCRIPTION   : TCP 세션 상세 메트릭을 표현하는 DTO로,
+ 원시 통계 컬럼과 파생 지표, 품질 평가, 진단 정보를 포함
+ AUTHOR        : 방대혁
+ ******************************************************************************/
 /**
  * TCP Metrics DTO
- * ✅ 실제 DB 컬럼에 완전 매핑
- * ✅ 121개 컬럼 전체 지원
- * ❌ ts_first, ts_last는 null 가능
+ * 실제 DB 컬럼에 완전 매핑
+ * ts_first, ts_last는 null 가능
  */
 public record TcpMetricsDTO(
-        // === 식별 / 엔드포인트 ===
+        // 식별 / 엔드포인트
         String rowKey,
         String srcMac,
         String dstMac,
@@ -21,15 +26,15 @@ public record TcpMetricsDTO(
         String master,
         String sni,
 
-        // === 시간 정보 ===
+        // 시간 정보
         Double tsSampleBegin,
         Double tsSampleEnd,
-        Double tsFirst,             // ❌ DB에 없음 - null
-        Double tsLast,              // ❌ DB에 없음 - null
-        Double tsExpired,           // ✅ 실제 존재
-        double durSec,              // 계산: tsSampleEnd - tsSampleBegin
+        Double tsFirst,
+        Double tsLast,
+        Double tsExpired,
+        double durSec,
 
-        // === 세션 상태 ===
+        // 세션 상태
         Integer expired,
         Integer expiredByTimeout,
         Integer sessionTimeout,
@@ -37,10 +42,10 @@ public record TcpMetricsDTO(
         Integer stoppedTransactionReq,
         Integer stoppedTransactionRes,
 
-        // === 속도 ===
-        double bps,                 // 계산: len * 8 / durSec
+        // 속도
+        double bps,
 
-        // === 트래픽 통계 (전체) ===
+        // 트래픽 통계 (전체)
         long len,
         long lenReq,
         long lenRes,
@@ -48,7 +53,7 @@ public record TcpMetricsDTO(
         long pktsReq,
         long pktsRes,
 
-        // === PDU (페이로드만) ===
+        // PDU (페이로드만)
         long lenPdu,
         long lenPduReq,
         long lenPduRes,
@@ -58,7 +63,7 @@ public record TcpMetricsDTO(
         long overhead,              // 계산: len - lenPdu
         double overheadRate,        // 계산: overhead / len * 100
 
-        // === 재전송 ===
+        // 재전송
         long retransCnt,
         long retransCntReq,
         long retransCntRes,
@@ -68,7 +73,7 @@ public record TcpMetricsDTO(
         double retransRateBytes,    // 계산: retransLen / len
         double retransRatePkts,     // 계산: retransCnt / pkts
 
-        // === 순서 오류 ===
+        // 순서 오류
         long oooCnt,
         long oooCntReq,
         long oooCntRes,
@@ -77,7 +82,7 @@ public record TcpMetricsDTO(
         long oooLenRes,
         double oooRatePkts,         // 계산: oooCnt / pkts
 
-        // === 패킷 손실 ===
+        // 패킷 손실
         long lostCnt,
         long lostCntReq,
         long lostCntRes,
@@ -86,20 +91,20 @@ public record TcpMetricsDTO(
         long lostLenRes,
         double lossRatePkts,        // 계산: lostCnt / pkts
 
-        // === 중복 ACK ===
+        // 중복 ACK
         long dupAckCnt,
         long dupAckCntReq,
         long dupAckCntRes,
         long dupAckLen,
         double dupAckRate,          // 계산: dupAckCnt / pkts
 
-        // === ACK 손실 ===
+        // ACK 손실
         long ackLostCnt,
         long ackLostCntReq,
         long ackLostCntRes,
         long ackLostLen,
 
-        // === 체크섬 에러 ===
+        // 체크섬 에러
         long csumCnt,
         long csumCntReq,
         long csumCntRes,
@@ -108,7 +113,7 @@ public record TcpMetricsDTO(
         long csumLenRes,
         double csumRatePkts,        // 계산: csumCnt / pkts
 
-        // === 윈도우 관련 ===
+        // 윈도우 관련
         long zeroWinCnt,
         long zeroWinCntReq,
         long zeroWinCntRes,
@@ -119,37 +124,37 @@ public record TcpMetricsDTO(
         long winUpdateCntReq,
         long winUpdateCntRes,
 
-        // === RTT/RTO ⭐⭐⭐ 가장 중요! ===
+        // RTT/RTO
         long ackRttCntReq,          // RTT 측정 횟수
         long ackRttCntRes,
-        long ackRtoCntReq,          // RTO 타임아웃 (핵심!)
+        long ackRtoCntReq,          // RTO 타임아웃
         long ackRtoCntRes,
         long ackRtoTotal,           // 계산: rtoReq + rtoRes
         double rtoRate,             // 계산: rtoTotal / (rttReq + rttRes) * 100
 
-        // === 패턴 분석 ===
+        // 패턴 분석
         double reqResRatio,         // 계산: lenReq / lenRes
         boolean ackOnly,            // 계산: len == 0 && pkts > 0
         String handshake,           // "성공" / "응답없음" / "불명"
         String termination,         // "정상종료(예상)" / "RST 종료" / "불명"
         double avgPktSize,          // 계산: len / pkts
 
-        // === TCP 플래그 ===
+        // TCP 플래그
         Map<String, Long> flags,
 
-        // === 품질 카운트 ===
+        // 품질 카운트
         Map<String, Long> qualityCounts,
 
-        // === 품질 평가 ===
+        // 품질 평가
         QualityScore quality,
 
-        // === 배지 ===
+        // 배지
         Map<String, String> badges,
 
-        // === 진단 메시지 ===
+        // 진단 메시지
         Map<String, String> diagnostics,
 
-        // === 환경 정보 ===
+        // 환경 정보
         Environment env
 ) {
 

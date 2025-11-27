@@ -1,6 +1,16 @@
 package com.moa.api.grid.repository;
 
+/*****************************************************************************
+ CLASS NAME    : GridRepositoryCustom
+ DESCRIPTION   : Grid 데이터 DISTINCT 조회, 컬럼 메타, 집계 쿼리용 커스텀 Repository 인터페이스
+ AUTHOR        : 방대혁
+ ******************************************************************************/
+/**
+ * Grid Repository Custom
+ */
+
 import com.moa.api.grid.dto.*;
+
 import java.util.List;
 import java.util.Map;
 
