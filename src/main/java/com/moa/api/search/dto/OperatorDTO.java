@@ -1,6 +1,8 @@
 package com.moa.api.search.dto;
 
-
+/**
+ * 작성자: 정소영
+ */
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 

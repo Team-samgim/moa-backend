@@ -1,3 +1,6 @@
+/**
+ * 작성자: 정소영
+ */
 package com.moa.api.data.controller;
 
 import com.moa.api.data.entity.HttpPageSampleFull;
@@ -36,6 +39,8 @@ public class InternalPageSampleController {
                 sample.setRowKey(rowKey);
                 sample.setTsServer(now);
                 sample.setTsServerNsec(unixTimestamp);
+                // ts_page 0~4 초
+                //
 
                 log.debug("  → row_key: {}", rowKey);  // ← 각 데이터마다
             }

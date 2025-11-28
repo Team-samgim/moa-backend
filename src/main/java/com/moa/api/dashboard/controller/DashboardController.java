@@ -1,3 +1,7 @@
+/**
+ * 작성자: 정소영
+ * 설명: 대시보드 조회 요청을 받아 시간 범위와 필터 조건에 따른 위젯 데이터를 반환하는 컨트롤러
+ */
 package com.moa.api.dashboard.controller;
 
 import com.moa.api.dashboard.dto.request.DashboardRequestDTO;

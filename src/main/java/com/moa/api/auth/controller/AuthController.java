@@ -1,3 +1,7 @@
+/**
+ * 작성자: 정소영
+ * 설명: 회원가입, 로그인, 토큰 재발급, 아이디 중복확인 등 인증 기능을 제공하는 컨트롤러
+ */
 package com.moa.api.auth.controller;
 
 import com.moa.api.auth.dto.LoginRequestDTO;

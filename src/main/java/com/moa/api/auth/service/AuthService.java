@@ -1,3 +1,7 @@
+/**
+ * 작성자: 정소영
+ * 설명: 회원가입, 로그인, 토큰 재발급 및 중복 체크 등 인증 관련 비즈니스 로직을 처리하는 서비스
+ */
 package com.moa.api.auth.service;
 
 import com.moa.api.auth.dto.LoginRequestDTO;

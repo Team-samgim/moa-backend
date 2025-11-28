@@ -1,3 +1,8 @@
+/**
+ * 작성자: 정소영
+ * 설명: 대시보드에서 사용 가능한 필터 옵션 목록을 담는 응답 DTO
+ *      (DB에 실제 존재하는 값들만 반환)
+ */
 package com.moa.api.dashboard.dto.response;
 
 import java.util.List;
