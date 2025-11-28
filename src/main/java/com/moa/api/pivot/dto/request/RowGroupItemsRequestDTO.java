@@ -1,3 +1,4 @@
+// 작성자: 최이서
 package com.moa.api.pivot.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;

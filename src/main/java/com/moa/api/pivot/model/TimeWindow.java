@@ -1,3 +1,4 @@
+// 작성자: 최이서
 package com.moa.api.pivot.model;
 
 import lombok.Value;

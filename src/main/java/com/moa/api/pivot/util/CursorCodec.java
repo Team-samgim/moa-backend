@@ -1,3 +1,4 @@
+// 작성자: 최이서
 package com.moa.api.pivot.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
