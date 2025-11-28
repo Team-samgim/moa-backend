@@ -1,3 +1,8 @@
+/**
+ * 작성자: 정소영
+ * 설명: 대시보드 전체 데이터를 담는 응답 DTO
+ *      (10개 위젯 데이터, 필터 옵션, 조회 시간 범위를 포함)
+ */
 package com.moa.api.dashboard.dto.response;
 
 import java.sql.Timestamp;

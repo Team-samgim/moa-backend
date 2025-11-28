@@ -1,3 +1,6 @@
+/**
+ * 작성자: 정소영
+ */
 package com.moa.global.security.jwt;
 
 import jakarta.servlet.FilterChain;

@@ -1,3 +1,8 @@
+/**
+ * 작성자: 정소영
+ * 설명: 대시보드 전체 데이터를 조회하고 각 위젯별 집계 로직을 호출해
+ *       하나의 응답으로 조합하는 서비스 클래스
+ */
 package com.moa.api.dashboard.service;
 
 import com.moa.api.dashboard.dto.request.DashboardRequestDTO;

@@ -1,3 +1,6 @@
+/**
+ * 작성자: 정소영
+ */
 package com.moa.global.common.entity;
 
 import jakarta.persistence.Column;

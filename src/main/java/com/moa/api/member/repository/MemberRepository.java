@@ -1,3 +1,6 @@
+/**
+ * 작성자: 정소영
+ */
 package com.moa.api.member.repository;
 
 import com.moa.api.member.entity.Member;

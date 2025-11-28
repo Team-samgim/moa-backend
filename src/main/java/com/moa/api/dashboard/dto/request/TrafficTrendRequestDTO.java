@@ -1,3 +1,8 @@
+/**
+ * 작성자: 정소영
+ * 설명: 트래픽 추이(Trend) 위젯 조회를 위한 요청 DTO
+ *      (레이어, 시간 프리셋, 조회 범위, 스텝 정보를 포함)
+ */
 package com.moa.api.dashboard.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonProperty;

@@ -1,3 +1,6 @@
+/**
+ * 작성자: 정소영
+ */
 package com.moa.api.search.service;
 
 import com.moa.api.search.dto.SearchDTO;

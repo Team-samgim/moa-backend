@@ -1,3 +1,6 @@
+/**
+ * 작성자: 정소영
+ */
 package com.moa.api.data.entity;
 
 import jakarta.persistence.*;

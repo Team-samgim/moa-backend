@@ -1,3 +1,7 @@
+/**
+ * 작성자: 정소영
+ * 설명: 대시보드 조회 요청 정보(시간 프리셋, 절대 범위, 스텝, 필터 조건)를 담는 DTO
+ */
 package com.moa.api.dashboard.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -7,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 import java.util.Map;
+
 
 @Getter
 @Setter
@@ -27,6 +32,10 @@ public class DashboardRequestDTO {
     @Schema(description = "필터 조건", implementation = DashboardFilters.class)
     private DashboardFilters filters;
 
+    /**
+     * 작성자: 정소영
+     * 설명: 대시보드 조회 시 국가, 브라우저, 디바이스, URI 등 다양한 조건을 전달하는 필터 DTO
+     */
     @Getter
     @Setter
     @Schema(name = "DashboardEpochRange", description = "절대시간 범위(유닉스 초)")

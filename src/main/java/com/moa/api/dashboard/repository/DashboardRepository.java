@@ -1,3 +1,9 @@
+/**
+ * 작성자: 정소영
+ * 설명: 대시보드 위젯 데이터 조회를 위한 Repository
+ *      (트래픽, 응답시간, 에러율, 상태코드, Top10, 국가/브라우저/디바이스 성능 등
+ *       전체 위젯의 SQL 집계 로직을 포함)
+ */
 package com.moa.api.dashboard.repository;
 
 import com.moa.api.dashboard.dto.request.DashboardRequestDTO;

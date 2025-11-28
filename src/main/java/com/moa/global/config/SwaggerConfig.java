@@ -1,3 +1,6 @@
+/**
+ * 작성자: 정소영
+ */
 package com.moa.global.config;
 
 import io.swagger.v3.oas.models.Components;

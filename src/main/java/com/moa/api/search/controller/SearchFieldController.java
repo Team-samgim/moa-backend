@@ -1,3 +1,6 @@
+/**
+ * 작성자: 정소영
+ */
 package com.moa.api.search.controller;
 
 import com.moa.api.search.dto.FieldWithOpsDTO;
